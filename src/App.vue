@@ -618,7 +618,7 @@ html, body {
   gap: 8px;
 }
 
-.btn-text {
+.startup-update-actions .btn-text {
   background: transparent;
   border: none;
   padding: 4px 6px;
@@ -629,7 +629,7 @@ html, body {
   transition: all 0.18s ease;
 }
 
-.btn-text:hover {
+.startup-update-actions .btn-text:hover {
   color: var(--text-primary);
   background: var(--bg-hover, rgba(0, 0, 0, 0.05));
 }

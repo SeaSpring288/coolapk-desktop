@@ -71,14 +71,17 @@ defineEmits<{
   height: 40px;
 }
 
-/* Variants */
 .btn-primary {
-  background-color: var(--brand-green, #10b966);
-  color: var(--text-white, #ffffff);
+  background-color: var(--brand-primary, var(--brand-green, #10b966));
+  color: var(--text-inverse, var(--text-white, #ffffff));
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: var(--brand-green-hover, #0ea05b);
+  background-color: var(--brand-hover, var(--brand-green-hover, #0ea05b));
+}
+
+.btn-primary:active:not(:disabled) {
+  background-color: var(--brand-active, #05844b);
 }
 
 .btn-secondary {
@@ -129,5 +132,11 @@ defineEmits<{
 
 .btn-icon {
   font-size: 0.9em;
+}
+
+.btn-text {
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 </style>
