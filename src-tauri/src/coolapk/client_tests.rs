@@ -93,6 +93,28 @@ fn test_product_rating_list_query_matches_apk_contract() {
 }
 
 #[test]
+fn test_secondhand_product_list_query_matches_apk_contract() {
+    assert_eq!(
+        build_secondhand_product_list_query("1016", "recommend", 0, "", ""),
+        vec![
+            ("id", "1016".to_string()),
+            ("listType", "recommend".to_string()),
+            ("page", "1".to_string()),
+        ]
+    );
+    assert_eq!(
+        build_secondhand_product_list_query("1016", "recommend", 2, "first", "last"),
+        vec![
+            ("id", "1016".to_string()),
+            ("listType", "recommend".to_string()),
+            ("page", "2".to_string()),
+            ("firstItem", "first".to_string()),
+            ("lastItem", "last".to_string()),
+        ]
+    );
+}
+
+#[test]
 fn test_collection_list_query_includes_default_collection() {
     assert_eq!(
         build_collection_list_query("12345", 1),

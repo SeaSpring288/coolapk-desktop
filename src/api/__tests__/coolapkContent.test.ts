@@ -144,6 +144,22 @@ describe('CoolapkTauriAPI 内容新页接口封装', () => {
     });
   });
 
+  it('闲置品牌列表调用 APK 对应命令', async () => {
+    await CoolapkTauriAPI.getSecondHandBrandList();
+    expect(invoke).toHaveBeenCalledWith('get_secondhand_brand_list', {});
+  });
+
+  it('闲置型号列表传入 APK 的品牌、类型和游标参数', async () => {
+    await CoolapkTauriAPI.getSecondHandProductList('1016', 'recommend', 2, { firstItem: 'first', lastItem: 'last' });
+    expect(invoke).toHaveBeenCalledWith('get_secondhand_product_list', {
+      brandId: '1016',
+      listType: 'recommend',
+      page: 2,
+      firstItem: 'first',
+      lastItem: 'last',
+    });
+  });
+
   it('个人资料读取调用 get_user_profile', async () => {
     await CoolapkTauriAPI.getUserProfile('2014');
     expect(invoke).toHaveBeenCalledWith('get_user_profile', { uid: '2014' });

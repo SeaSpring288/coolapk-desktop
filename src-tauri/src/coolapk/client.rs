@@ -268,6 +268,27 @@ fn build_product_rating_list_query(
     query
 }
 
+fn build_secondhand_product_list_query(
+    brand_id: &str,
+    list_type: &str,
+    page: u32,
+    first_item: &str,
+    last_item: &str,
+) -> Vec<(&'static str, String)> {
+    let mut query = vec![
+        ("id", brand_id.to_string()),
+        ("listType", list_type.to_string()),
+        ("page", page.max(1).to_string()),
+    ];
+    if !first_item.trim().is_empty() {
+        query.push(("firstItem", first_item.to_string()));
+    }
+    if !last_item.trim().is_empty() {
+        query.push(("lastItem", last_item.to_string()));
+    }
+    query
+}
+
 fn build_create_feed_form(
     message: &str,
     pic: Option<&str>,
@@ -6507,6 +6528,21 @@ impl CoolapkClient {
             query.push(("lastItem", last_item.to_string()));
         }
         let raw = self.api_get("/v6/product/productList", &query).await?;
+        Ok(Self::product_entity_page_response(&raw))
+    }
+
+    /// APK 闲置品牌列表。
+    /// 数据来源: GET /v6/erShou/brandList
+    pub async fn get_secondhand_brand_list(&self) -> Result<Value, String> {
+        let raw = self.api_get("/v6/erShou/brandList", &[]).await?;
+        Ok(Self::product_entity_page_response(&raw))
+    }
+
+    /// APK 闲置品牌下的型号/系列列表。
+    /// 数据来源: GET /v6/erShou/productList?id={brand_id}&listType={list_type}
+    pub async fn get_secondhand_product_list(&self, brand_id: &str, list_type: &str, page: u32, first_item: &str, last_item: &str) -> Result<Value, String> {
+        let query = build_secondhand_product_list_query(brand_id, list_type, page, first_item, last_item);
+        let raw = self.api_get("/v6/erShou/productList", &query).await?;
         Ok(Self::product_entity_page_response(&raw))
     }
 

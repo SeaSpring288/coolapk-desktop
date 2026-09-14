@@ -418,6 +418,11 @@ function getTopicTabUrl(tab: TopicTab): string {
   return `#/topic/tagFeedList?tag=${encodeURIComponent(tag.value)}&type=${encodeURIComponent(type)}`;
 }
 
+// APK 的机型列表是页面数据接口，不是 topic/deviceFeedList 动态接口。
+function usesDeviceFeedList(tab: TopicTab): boolean {
+  return tab.kind === 'device' && !/\/product\/tagProductList(?:[?#]|$)/i.test(getTopicTabUrl(tab));
+}
+
 function readFeedCursor(feed: any): string {
   const value = feed?.id ?? feed?.feedId ?? feed?.feed_id ?? feed?.entityId ?? '';
   return value === null || value === undefined ? '' : String(value);
@@ -573,7 +578,7 @@ async function fetchFeeds(isLoadMore = false) {
           lastItem,
           blockStatus: 1,
         })
-        : tab.kind === 'device'
+        : usesDeviceFeedList(tab)
           ? await CoolapkTauriAPI.getDeviceFeedList(tag.value, page.value, { firstItem, lastItem })
         : await CoolapkTauriAPI.getTopicTabData({
           url: getTopicTabUrl(tab),

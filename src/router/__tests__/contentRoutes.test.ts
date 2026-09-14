@@ -20,6 +20,17 @@ describe('内容新页路由注册', () => {
     expect(resolved.params.nodeId).toBe('数码');
   });
 
+  it('APK 闲置型号列表路由存在并保留筛选参数', () => {
+    const resolved = router.resolve('/secondhand/list?brand=1&productId=2&ershouType=3');
+    expect(resolved.matched.length).toBeGreaterThan(0);
+    expect(resolved.name).toBe('SecondHandList');
+    expect(resolved.query.productId).toBe('2');
+  });
+
+  it('APK 闲置品牌分类路由存在', () => {
+    expect(router.resolve('/secondhand/brands').name).toBe('SecondHandBrands');
+  });
+
   it('万物清单列表/创建/详情路由存在', () => {
     expect(router.resolve('/anylist').name).toBe('AnyList');
     expect(router.resolve('/anylist/create').name).toBe('AnyListCreate');

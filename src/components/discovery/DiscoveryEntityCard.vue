@@ -1,9 +1,20 @@
 <template>
   <div v-if="isFeed" :class="['discovery-feed-card-wrapper', { 'is-compact': compact }]">
-    <FeedCard :feed="entity as any" :max-lines="compact ? 6 : undefined" />
+    <FeedCard :feed="entity as any" :max-lines="compact ? 6 : undefined" @deleted="emitDeleted" />
   </div>
 
   <LiveCard v-else-if="isLive" :entity="entity" :compact="compact" />
+
+  <article v-else-if="entityKind === 'secondhand' && !hasChildren" :class="['discovery-special-card secondhand-card', { 'is-compact': compact }]" @click="emitOpen">
+    <AppImage v-if="image" :src="image" fit="contain" image-class="special-card-image" />
+    <span v-else class="special-card-image secondhand-image-fallback"><i class="fas fa-tags"></i></span>
+    <div class="special-card-copy">
+      <strong>{{ title || '闲置型号' }}</strong>
+      <span>{{ subtitle || text || '查看对应的闲置交易' }}</span>
+      <small v-if="secondHandCount">{{ secondHandCount }} 条闲置</small>
+    </div>
+    <i class="fas fa-chevron-right discovery-card-arrow"></i>
+  </article>
 
   <article v-else-if="isCarousel" :class="['discovery-carousel-card', { 'is-compact': compact }]">
     <div class="carousel-viewport">
@@ -247,13 +258,14 @@ defineOptions({ name: 'DiscoveryEntityCard' });
 
 const props = defineProps<{ entity: DiscoveryEntity; compact?: boolean }>();
 const compact = computed(() => props.compact === true);
-const emit = defineEmits<{ (event: 'open', entity: DiscoveryEntity): void }>();
+const emit = defineEmits<{ (event: 'open', entity: DiscoveryEntity): void; (event: 'deleted', id: string | number): void }>();
 const authStore = useAuthStore();
 
 const title = computed(() => String(props.entity.title ?? props.entity.productGroupTitle ?? props.entity.product_group_title ?? props.entity.seriesTitle ?? props.entity.series_title ?? props.entity.productGoodsTitle ?? props.entity.product_goods_title ?? props.entity.goodsTitle ?? props.entity.goods_title ?? props.entity.name ?? props.entity.label ?? props.entity.buttonText ?? props.entity.button_text ?? props.entity.text ?? ''));
 const subtitle = computed(() => String(props.entity.subTitle ?? props.entity.sub_title ?? props.entity.mallName ?? props.entity.mall_name ?? props.entity.mallTitle ?? props.entity.mall_title ?? props.entity.note ?? ''));
 const text = computed(() => getEntityText(props.entity));
 const price = computed(() => String(props.entity.price ?? props.entity.priceText ?? props.entity.goodsPrice ?? props.entity.goods_price ?? props.entity.productGoodsPrice ?? props.entity.product_goods_price ?? props.entity.goodsPromoPrice ?? props.entity.goods_promo_price ?? '').trim());
+const secondHandCount = computed(() => String(props.entity.secondHandFeedNum ?? props.entity.second_hand_feed_num ?? props.entity.sale_num ?? props.entity.saleNum ?? '').trim());
 const image = computed(() => getEntityImage(props.entity));
 const fallbackIcon = computed(() => getEntityFallbackIcon(props.entity));
 const route = computed(() => resolveDiscoveryRoute(props.entity));
@@ -304,8 +316,10 @@ const isTitleCard = computed(() => {
   return !hasChildren.value && (template === 'title' || template.includes('sectiontitle') || template.includes('cardtitle') || template.includes('simpletitle') || template.includes('productgrouptitle') || template.includes('product_group_title') || template.includes('series_title') || template.includes('seriestitle'));
 });
 const isGoodsCollection = computed(() => hasChildren.value && props.entity.entities!.some((child) => {
-  const type = String(child.entityType || child.entityTemplate || '').toLowerCase();
+  const type = `${String(child.entityType || '')} ${String(child.entityTemplate || '')} ${String(child.entityTypeName || '')} ${String(child.entity_type_name || '')}`.toLowerCase();
   return type.includes('goods')
+    || type.includes('ershou')
+    || type.includes('secondhand')
     || Boolean(child.goodsPic || child.goods_pic || child.productGoodsLogo || child.product_goods_cover || child.goodsCover || child.goods_cover || child.goodsTitle || child.goods_title);
 }));
 const isCompactGrid = computed(() => isGrid.value && (
@@ -359,12 +373,13 @@ const isReviewGroup = computed(() => {
   return groupTitle.includes('酷友点评') || groupTitle.includes('酷友评论') || templateName.value.includes('review');
 });
 const entityKind = computed(() => {
-  const type = `${String(props.entity.entityType || '').toLowerCase()} ${String(props.entity.entityTemplate || '').toLowerCase()}`;
+  const type = `${String(props.entity.entityType || '').toLowerCase()} ${String(props.entity.entityTemplate || '').toLowerCase()} ${String(props.entity.entityTypeName || '').toLowerCase()} ${String(props.entity.entity_type_name || '').toLowerCase()}`;
+  if (type.includes('ershou') || type.includes('secondhand')) return 'secondhand';
   if (type.includes('topic')) return 'topic';
   if (type.includes('apk') || type.includes('app')) return 'app';
   if (type.includes('product') || props.entity.productId || props.entity.product_id) return 'product';
   if (props.entity.tag || props.entity.tagName || props.entity.tag_name) return 'topic';
-  if (type.includes('goods') || type.includes('commodity') || type.includes('merchant') || type.includes('sale') || type.includes('ershou') || type.includes('secondhand')) return 'goods';
+  if (type.includes('goods') || type.includes('commodity') || type.includes('merchant') || type.includes('sale')) return 'goods';
   if (type.includes('dyh') || type.includes('official')) return 'dyh';
   if (type.includes('question') || type.includes('qa')) return 'question';
   if (type.includes('article') || type.includes('news')) return 'article';
@@ -384,6 +399,10 @@ const isCarousel = computed(() => isImage.value && (carouselItems.value.length >
 
 function emitOpen() {
   emit('open', props.entity);
+}
+
+function emitDeleted(id: string | number) {
+  emit('deleted', id);
 }
 
 function moveCarousel(delta: number) {
@@ -938,6 +957,7 @@ async function toggleDyhFollow() {
 
 .discovery-special-card { display: flex; align-items: center; gap: 12px; padding: 12px; cursor: pointer; }
 .special-card-image { width: 56px; height: 56px; flex: 0 0 56px; border-radius: 10px; object-fit: cover; }
+.secondhand-image-fallback { display: grid; place-items: center; background: var(--brand-soft, rgba(16, 185, 129, .1)); color: var(--brand-primary); font-size: 22px; }
 .special-card-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .special-card-copy strong,
 .special-card-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

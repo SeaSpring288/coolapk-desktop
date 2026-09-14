@@ -191,12 +191,24 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_product_brand_products', args);
   }
 
-  // 1.4.3 产品媒体库
+  // 1.4.3 APK 闲置品牌与型号列表，参数和 erShou/productList 保持一致。
+  static async getSecondHandBrandList() {
+    return await invokeNative('get_secondhand_brand_list');
+  }
+
+  static async getSecondHandProductList(brandId: string, listType: string = 'recommend', page: number = 1, options: { firstItem?: string; lastItem?: string } = {}) {
+    const args: Record<string, unknown> = { brandId, listType, page };
+    if (options.firstItem) args.firstItem = options.firstItem;
+    if (options.lastItem) args.lastItem = options.lastItem;
+    return await invokeNative('get_secondhand_product_list', args);
+  }
+
+  // 1.4.4 产品媒体库
   static async getProductMediaList(productId: string, mediaType: string = 'image', isRecommend: number = 0, page: number = 1) {
     return await invokeNative('get_product_media_list', { productId, mediaType, isRecommend, page });
   }
 
-  // 1.4.4 产品心愿单/已购
+  // 1.4.5 产品心愿单/已购
   static async changeProductWishStatus(productId: string, status: number) {
     return await invokeNative('change_product_wish_status', { productId, status });
   }

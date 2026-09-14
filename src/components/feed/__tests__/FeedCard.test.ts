@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getFeedChangeHistory: vi.fn(),
   getHotReplies: vi.fn(),
   getFeedReplies: vi.fn(),
+  openUrl: vi.fn(),
   routerPush: vi.fn(),
 }));
 
@@ -23,6 +24,7 @@ vi.mock('../../../api/coolapk', () => ({
     getFeedChangeHistory: mocks.getFeedChangeHistory,
     getHotReplies: mocks.getHotReplies,
     getFeedReplies: mocks.getFeedReplies,
+    openUrl: mocks.openUrl,
   },
 }));
 
@@ -34,6 +36,37 @@ describe('动态卡片编辑记录', () => {
     mocks.getHotReplies.mockResolvedValue({ data: [] });
     mocks.getFeedReplies.mockResolvedValue({ data: [] });
     setActivePinia(createPinia());
+  });
+
+  it('闲置动态显示并打开 APK 返回的闲鱼链接', async () => {
+    const link = 'https://m.tb.cn/h.example?tk=test';
+    const wrapper = mount(FeedCard, {
+      props: {
+        feed: { id: 'secondhand-feed', uid: '456', username: '测试用户', message: '闲置商品', ershou_info: { link_source: '闲鱼', link_url: link } },
+      },
+      global: {
+        plugins: [createPinia()],
+        stubs: {
+          FeedHeader: true,
+          FeedContent: true,
+          FeedImageGrid: true,
+          FeedVideoCard: true,
+          FeedActionBar: true,
+          FeedCommentSection: true,
+          ForwardDialog: true,
+          FeedShareImageDialog: true,
+          FeedInteractionListDialog: true,
+          FeedCollectionPickerDialog: true,
+          AppDialog: true,
+          LoadingState: true,
+        },
+      },
+    });
+
+    expect(wrapper.find('.secondhand-link-card').text()).toContain('闲鱼链接');
+    await wrapper.find('.secondhand-link-button').trigger('click');
+    expect(mocks.openUrl).toHaveBeenCalledWith(link, 'internal');
+    wrapper.unmount();
   });
 
   it('将生成长图放入头部的更多菜单', async () => {

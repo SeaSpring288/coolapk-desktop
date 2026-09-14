@@ -24,6 +24,13 @@ describe('酷安站内路由', () => {
     expect(normalizeCoolapkRoute('/page?url=%2Fproduct%2FfeedList')).toBe('/page?url=%2Fproduct%2FfeedList');
   });
 
+  it('将 APK 闲置型号列表入口转换为桌面端闲置列表页', () => {
+    const target = '#/feed/ershouList?brand=1&productId=2&cityId=&ershouType=3&dataListType=staggered';
+    const expected = '/secondhand/list?brand=1&productId=2&cityId=&ershouType=3&dataListType=staggered';
+    expect(normalizeCoolapkRoute(target)).toBe(expected);
+    expect(normalizeCoolapkRoute(`https://www.coolapk.com/${target}`)).toBe(expected);
+  });
+
   it('将酷安直播详情链接转换为桌面端直播详情页', () => {
     expect(normalizeCoolapkRoute('/live/12345')).toBe('/live/12345');
     expect(normalizeCoolapkRoute('https://www.coolapk.com/live/12345')).toBe('/live/12345');
@@ -34,6 +41,14 @@ describe('酷安站内路由', () => {
     expect(normalizeCoolapkRoute('/feed/multiTagFeedList?tag=Android%2016')).toBe('/topic/Android%2016');
     expect(normalizeCoolapkRoute('/topic/tagFeedList?title=桌面改造')).toBe('/topic/%E6%A1%8C%E9%9D%A2%E6%94%B9%E9%80%A0');
     expect(normalizeCoolapkRoute('/page?url=%2Ftopic%2FtagFeedList%3Ftitle%3D桌面改造')).toBe('/topic/%E6%A1%8C%E9%9D%A2%E6%94%B9%E9%80%A0');
+  });
+
+  it('将 APK 的 tagList 入口转换为话题发现列表，而不是名为 tagList 的空话题', () => {
+    const target = '/topic/tagList?withSymbol=0&keywords=种草&cacheExpires=300&title=讨论区';
+    const expected = '/page?url=%2Ftopic%2FtagList%3FwithSymbol%3D0%26keywords%3D%E7%A7%8D%E8%8D%89%26cacheExpires%3D300%26title%3D%E8%AE%A8%E8%AE%BA%E5%8C%BA&title=%E8%AE%A8%E8%AE%BA%E5%8C%BA&renderer=discovery';
+    expect(normalizeCoolapkRoute(target)).toBe(expected);
+    expect(normalizeCoolapkRoute(`#${target}`)).toBe(expected);
+    expect(normalizeCoolapkRoute(`#/page?url=${encodeURIComponent(target)}`)).toBe(expected);
   });
 
   it('将酷安机型搜索链接转换为原生机型列表页', () => {

@@ -207,6 +207,8 @@ export function getEntityImage(entity: DiscoveryEntity): string {
       entity.picArr,
       entity.pics,
       entity.logo,
+      entity.compatLogo,
+      entity.compat_logo,
       entity.logoUrl,
       entity.logo_url,
       entity.icon,
@@ -250,13 +252,14 @@ export function getEntityImage(entity: DiscoveryEntity): string {
 
 /** 服务端实体没有图片时，按实体语义提供可识别的本地图标。 */
 export function getEntityFallbackIcon(entity: DiscoveryEntity): string {
-  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)}`.toLowerCase();
+  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)} ${asString(entity.entityTypeName)} ${asString(entity.entity_type_name)}`.toLowerCase();
   const title = firstString(entity.title, entity.name, entity.label, entity.buttonText, entity.button_text).toLowerCase();
   if (title === '热度' || title.includes('热门') || title.includes('热榜') || type.includes('hot')) return 'fas fa-fire';
   if (title.includes('评分') || title.includes('得分') || type.includes('rating') || type.includes('score')) return 'fas fa-star';
   if (title.includes('最新') || title.includes('时间') || type.includes('latest') || type.includes('new')) return 'fas fa-clock';
   if (title === '全部') return 'fas fa-th-large';
   if (type.includes('productseries') || type.includes('series') || title.includes('系列')) return 'fas fa-layer-group';
+  if (type.includes('ershou') || type.includes('secondhand')) return 'fas fa-tags';
   if (type.includes('productbrand') || type.includes('brand')) return 'fas fa-tags';
   if (type.includes('category')) return 'fas fa-layer-group';
   if (type.includes('page')) return 'fas fa-list';
@@ -265,8 +268,8 @@ export function getEntityFallbackIcon(entity: DiscoveryEntity): string {
 }
 
 export function isGoodsEntity(entity: DiscoveryEntity): boolean {
-  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)}`.toLowerCase();
-  return type.includes('goods') || type.includes('commodity') || type.includes('merchant') || type.includes('sale');
+  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)} ${asString(entity.entityTypeName)} ${asString(entity.entity_type_name)}`.toLowerCase();
+  return type.includes('goods') || type.includes('commodity') || type.includes('merchant') || type.includes('sale') || type.includes('ershou') || type.includes('secondhand');
 }
 
 export function getEntityText(entity: DiscoveryEntity): string {
@@ -275,16 +278,37 @@ export function getEntityText(entity: DiscoveryEntity): string {
 
 export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute | null {
   const extra = parseExtraData(entity);
-  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)}`.toLowerCase().trim();
+  const type = `${asString(entity.entityType)} ${asString(entity.entityTemplate)} ${asString(entity.entityTypeName)} ${asString(entity.entity_type_name)}`.toLowerCase().trim();
   const entityUrl = asString(entity.url);
   const productId = entity.productId ?? entity.product_id;
   const isProductEntity = type.includes('product') || productId !== undefined && productId !== null && productId !== '';
+  const isSecondHandEntity = type.includes('ershou') || type.includes('secondhand') || entityUrl.toLowerCase().includes('ershou');
+  const isMainSecondHandType = type.includes('mainershoutype') || type.includes('mainershou') || type.includes('mainsecondhandtype');
+  const isSecondHandProductEntity = type.includes('ershouproduct') || isMainSecondHandType;
   const isLiveEntity = type.includes('livetopic') || type.includes('liveimagetextcard') || type.includes('livelistcard') || type === 'live';
   const liveId = firstString(entity.liveId, entity.live_id, entity.id, entity.entityId);
   const explicitTarget = /^https?:\/\//i.test(entityUrl)
     ? entityUrl
     : firstString(entity.webUrl, entity.web_url, extra.webUrl, extra.web_url, entityUrl, entity.targetUrl, entity.target_url);
-  const target = explicitTarget || (isProductEntity && (productId || entity.id || entity.entityId) ? `/product/${asString(productId ?? entity.id ?? entity.entityId)}` : '') || (isLiveEntity && liveId ? `/live/${liveId}` : '');
+  const isSecondHandListTarget = /(?:^|#)\/feed\/ershouList(?:\?|$)/i.test(explicitTarget);
+  let secondHandTarget = '';
+  if (isSecondHandEntity && (!explicitTarget || (isSecondHandProductEntity && !isSecondHandListTarget))) {
+    const brand = firstString(entity.brandId, entity.brand_id, entity.brand, entity.brandName, entity.brand_name);
+    const secondHandProductId = isMainSecondHandType
+      ? firstString(entity.productId, entity.product_id)
+      : firstString(entity.productId, entity.product_id, entity.id, entity.entityId);
+    const secondHandType = firstString(entity.secondHandSthType, entity.second_hand_sth_type, entity.ershouType, entity.ershou_type, entity.secondHandType, entity.second_hand_type, isMainSecondHandType ? entity.id : '100');
+    if (secondHandProductId || secondHandType) {
+      const params = new URLSearchParams();
+      params.set('brand', brand);
+      params.set('productId', secondHandProductId);
+      params.set('cityId', firstString(entity.cityId, entity.city_id));
+      params.set('ershouType', secondHandType);
+      params.set('dataListType', firstString(entity.dataListType, entity.data_list_type) || 'staggered');
+      secondHandTarget = `/feed/ershouList?${params.toString()}`;
+    }
+  }
+  const target = isSecondHandProductEntity && secondHandTarget ? secondHandTarget : explicitTarget || secondHandTarget || (isProductEntity && (productId || entity.id || entity.entityId) ? `/product/${asString(productId ?? entity.id ?? entity.entityId)}` : '') || (isLiveEntity && liveId ? `/live/${liveId}` : '');
   if (!target) return null;
   if (/^https?:\/\//i.test(target)) return { kind: 'web', target, title: asString(entity.title) };
   const apkDetail = target.match(/^\/?apk\/detail\?(?:[^#]*&)?packageName=([^&#]+)/i);
@@ -294,6 +318,9 @@ export function resolveDiscoveryRoute(entity: DiscoveryEntity): DiscoveryRoute |
   const productDetail = target.match(/^\/?product\/detail\?(?:[^#]*&)?(?:id|productId)=([^&#]+)/i);
   if (productDetail) {
     return { kind: 'native', target: `/product/${decodeURIComponent(productDetail[1])}`, title: asString(entity.title) };
+  }
+  if (isSecondHandEntity && /^#?\/feed\/ershouList(?:\?|$)/i.test(target)) {
+    return { kind: 'native', target: target.replace(/^#/, ''), title: asString(entity.title) };
   }
   if (/^#?\/live\/[^/?#]+/i.test(target)) {
     return { kind: 'native', target: target.replace(/^#/, ''), title: asString(entity.title) };

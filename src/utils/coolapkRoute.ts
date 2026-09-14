@@ -102,6 +102,23 @@ function normalizeCoolapkTopicFeedRoute(href: string): string | null {
   return tag ? `/topic/${encodeURIComponent(tag)}` : null;
 }
 
+/** 将 APK 的全部话题列表入口转换为桌面端发现列表页，避免把 tagList 当成话题名称。 */
+function normalizeCoolapkTopicListRoute(href: string): string | null {
+  const path = extractCoolapkPath(href);
+  if (!path) return null;
+  const match = path.match(/^\/topic\/tagList(?:\?([^#]*))?$/i);
+  if (!match) return null;
+  let target = `/topic/tagList${match[1] ? `?${match[1]}` : ''}`;
+  try {
+    // extractCoolapkPath 会保留查询参数中的百分号编码，重新包进 url 参数前先还原一次，避免 %25 双重编码。
+    target = decodeURI(target);
+  } catch {
+    // 保留原始地址，避免异常编码阻断其他站内链接处理。
+  }
+  const title = new URLSearchParams(match[1] || '').get('title') || '话题列表';
+  return `/page?url=${encodeURIComponent(target)}&title=${encodeURIComponent(title)}&renderer=discovery`;
+}
+
 /** 解析被酷安 /page?url= 包裹的话题入口，避免落入通用头条列表页。 */
 function normalizeCoolapkNestedTopicRoute(href: string): string | null {
   const path = extractCoolapkPath(href);
@@ -115,7 +132,7 @@ function normalizeCoolapkNestedTopicRoute(href: string): string | null {
     // 保留原始值，避免异常编码阻断其他站内链接处理。
   }
   const nestedPath = extractCoolapkPath(nestedUrl) || nestedUrl;
-  return normalizeCoolapkTopicFeedRoute(nestedUrl) || normalizeCoolapkTopicRoute(nestedPath);
+  return normalizeCoolapkTopicFeedRoute(nestedUrl) || normalizeCoolapkTopicListRoute(nestedPath) || normalizeCoolapkTopicRoute(nestedPath);
 }
 
 /** 将酷安服务端动态列表页转换为桌面端的通用列表路由。 */
@@ -166,6 +183,13 @@ function normalizeCoolapkFeedRoute(href: string): string | null {
   return `/feed/${match[1]}${match[2] ? `?${match[2]}` : ''}`;
 }
 
+/** 将 APK 的闲置商品列表入口转换为桌面端闲置列表页。 */
+export function normalizeCoolapkSecondHandRoute(href: string): string | null {
+  const match = href.match(/^\/feed\/ershouList\/?(?:\?([^#]*))?$/i);
+  if (!match) return null;
+  return `/secondhand/list${match[1] ? `?${match[1]}` : ''}`;
+}
+
 function normalizeCoolapkDirectRoute(href: string): string | null {
   const match = href.match(/^\/(?:app|product|user|topic|dyh|album)\/([^/?#]+)(?:\?([^#]*))?$/i);
   if (!match) return null;
@@ -202,10 +226,12 @@ export function normalizeCoolapkRoute(href: string): string | null {
     normalizeCoolapkProductSelectorRoute,
     normalizeCoolapkNestedTopicRoute,
     normalizeCoolapkTopicFeedRoute,
+    normalizeCoolapkTopicListRoute,
     normalizeCoolapkPageRoute,
     normalizeCoolapkNativeRoute,
     normalizeCoolapkUserRoute,
     normalizeCoolapkTopicRoute,
+    normalizeCoolapkSecondHandRoute,
     normalizeCoolapkFeedRoute,
     normalizeCoolapkLiveRoute,
     normalizeCoolapkDirectRoute,

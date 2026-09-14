@@ -31,6 +31,8 @@ import HeadlinePage from '../pages/HeadlinePage.vue';
 import PageDataListPage from '../pages/PageDataListPage.vue';
 import ReviewPage from '../pages/ReviewPage.vue';
 import SecondHandPage from '../pages/SecondHandPage.vue';
+import SecondHandListPage from '../pages/SecondHandListPage.vue';
+import SecondHandBrandsPage from '../pages/SecondHandBrandsPage.vue';
 import EventsPage from '../pages/EventsPage.vue';
 import EventDetailPage from '../pages/EventDetailPage.vue';
 import NodePage from '../pages/NodePage.vue';
@@ -88,6 +90,8 @@ const routes = [
   { path: '/following', name: 'Following', component: FollowingPage },
   { path: '/reviews', name: 'Reviews', component: ReviewPage },
   { path: '/secondhand', name: 'SecondHand', component: SecondHandPage },
+  { path: '/secondhand/brands', name: 'SecondHandBrands', component: SecondHandBrandsPage },
+  { path: '/secondhand/list', name: 'SecondHandList', component: SecondHandListPage },
   { path: '/events', name: 'Events', component: EventsPage },
   { path: '/event/:eventId', name: 'EventDetail', component: EventDetailPage, props: true },
   { path: '/node/:nodeType/:nodeId', name: 'Node', component: NodePage },

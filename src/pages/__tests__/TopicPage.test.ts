@@ -172,4 +172,52 @@ describe('话题排序按钮', () => {
       isStrict: 0,
     }));
   });
+
+  it('机型列表标签按 APK 下发的 product/tagProductList 页面请求机型实体', async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    mocks.getTopicDetail.mockResolvedValue({
+      data: {
+        title: 'LCD永不为奴',
+        tabList: [
+          { pageName: 'lastupdate_desc', title: '讨论', url: '#/topic/tagFeedList?type=feed&id=30087' },
+          { pageName: 'Top', title: '机型列表', url: '/product/tagProductList?product_tag=LCD&category_id=1000' },
+        ],
+      },
+    });
+    mocks.getTopicDetailV7.mockResolvedValue({ data: {} });
+    mocks.getTopicFeeds.mockReset().mockResolvedValue({ code: 200, data: [] });
+    mocks.getDeviceFeedList.mockReset().mockResolvedValue({ code: 200, data: [{ id: 'wrong-device-feed', message: '不应显示' }] });
+    mocks.getTopicTabData.mockReset().mockResolvedValue({ code: 200, data: [{ entityType: 'product', id: 5085, title: 'moto g100' }] });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/topic/:tag', component: TopicPage }],
+    });
+    await router.push('/topic/LCD永不为奴');
+    await router.isReady();
+    const wrapper = mount(TopicPage, {
+      global: {
+        plugins: [pinia, router],
+        stubs: {
+          FeedCard: { props: ['feed'], template: '<div class="feed-card-stub">{{ feed.id }}</div>' },
+          DiscoveryEntityCard: { props: ['entity'], template: '<div class="entity-card-stub">{{ entity.title }}</div>' },
+          AppImage: true,
+          LoadingState: { props: ['text'], template: '<div class="loading-state-stub">{{ text }}</div>' },
+          EmptyState: { props: ['title'], template: '<div class="empty-state-stub">{{ title }}</div>' },
+        },
+      },
+    });
+
+    await flushPromises();
+    await wrapper.findAll('.topic-tab-item')[1].trigger('click');
+    await flushPromises();
+    expect(mocks.getDeviceFeedList).not.toHaveBeenCalled();
+    expect(mocks.getTopicTabData).toHaveBeenCalledWith(expect.objectContaining({
+      url: '#/product/tagProductList?product_tag=LCD&category_id=1000',
+      title: '机型列表',
+    }));
+    expect(wrapper.find('.entity-card-stub').text()).toBe('moto g100');
+    wrapper.unmount();
+  });
 });

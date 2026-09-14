@@ -197,6 +197,26 @@ pub async fn get_product_brand_products(
 }
 
 #[tauri::command]
+pub async fn get_secondhand_brand_list(state: State<'_, AppState>) -> Result<Value, String> {
+    state.client.get_secondhand_brand_list().await
+}
+
+#[tauri::command]
+pub async fn get_secondhand_product_list(
+    state: State<'_, AppState>,
+    brand_id: String,
+    list_type: String,
+    page: u32,
+    first_item: Option<String>,
+    last_item: Option<String>,
+) -> Result<Value, String> {
+    state
+        .client
+        .get_secondhand_product_list(&brand_id, &list_type, page, first_item.as_deref().unwrap_or(""), last_item.as_deref().unwrap_or(""))
+        .await
+}
+
+#[tauri::command]
 pub async fn get_product_media_list(
     state: State<'_, AppState>,
     product_id: String,

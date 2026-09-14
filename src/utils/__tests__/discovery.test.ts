@@ -87,6 +87,11 @@ describe('discovery dynamic configuration', () => {
     expect(resolveDiscoveryRoute({ entityType: 'Product', id: 2967 })?.target).toBe('/product/2967');
     expect(resolveDiscoveryRoute({ product_id: 2968 })?.target).toBe('/product/2968');
     expect(resolveDiscoveryRoute({ entityType: 'liveTopic', id: 2969 })?.target).toBe('/live/2969');
+    const secondHandRoute = resolveDiscoveryRoute({ entityType: 'mainSecondHandType', id: '42', title: 'LCD' });
+    expect(secondHandRoute?.kind).toBe('native');
+    expect(secondHandRoute?.target).toContain('/feed/ershouList?');
+    expect(secondHandRoute?.target).toContain('ershouType=42');
+    expect(resolveDiscoveryRoute({ entityTemplate: 'ershouProduct', id: '2967', brandId: '1016', secondHandSthType: '100', url: '/product/2967' })?.target).toContain('productId=2967');
   });
 
   it('decodes discovery route segments only once', () => {

@@ -44,20 +44,21 @@
     </div>
 
     <!-- 动态列表 -->
-    <div v-if="feedsLoading && page === 1" class="loading-wrapper">
-      <LoadingState text="正在获取节点动态..." />
+    <div v-if="feedsLoading && page === 1 && pageEntities.length === 0" class="loading-wrapper">
+      <DiscoverySkeleton />
     </div>
 
-    <div v-else-if="feedsError && feeds.length === 0" class="error-wrapper">
+    <div v-else-if="feedsError && pageEntities.length === 0" class="error-wrapper">
       <ErrorState title="动态加载失败" message="无法获取该节点的动态列表" @retry="retryFeeds" />
     </div>
 
-    <div v-else-if="feeds.length === 0 && !feedsLoading" class="empty-wrapper">
+    <div v-else-if="pageEntities.length === 0 && !feedsLoading" class="empty-wrapper">
       <EmptyState title="暂无相关动态" />
     </div>
 
-    <div v-else class="feed-list">
-      <FeedCard v-for="item in feeds" :key="item.id || item.ttype + item.uid" :feed="item" @deleted="handleFeedDeleted" />
+    <div v-else class="feed-list discovery-page-list">
+      <!-- 节点列表必须保留 APK 下发的型号、闲置和动态实体，不能提前清洗成纯 Feed。 -->
+      <DiscoveryEntityCard v-for="(item, index) in pageEntities" :key="getEntityKey(item, index)" :entity="item" @open="openEntity" @deleted="handleFeedDeleted" />
 
       <div class="pagination-footer">
         <LoadingState v-if="feedsLoading && page > 1" text="加载更多中..." />
@@ -72,12 +73,16 @@
 import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
-import FeedCard from '../components/feed/FeedCard.vue';
+import DiscoveryEntityCard from '../components/discovery/DiscoveryEntityCard.vue';
+import DiscoverySkeleton from '../components/discovery/DiscoverySkeleton.vue';
 import AppImage from '../components/common/AppImage.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import ErrorState from '../components/common/ErrorState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
 import { useAuthStore } from '../stores/auth';
+import { getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
+import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
+import type { DiscoveryEntity } from '../types/discovery';
 import type { NodeEntity } from '../types/content';
 
 const route = useRoute();
@@ -104,11 +109,20 @@ const headerError = ref(false);
 const isFollowing = ref(false);
 const followLoading = ref(false);
 
-const feeds = ref<any[]>([]);
+const pageEntities = ref<DiscoveryEntity[]>([]);
 const feedsLoading = ref(false);
 const feedsError = ref(false);
 const page = ref(1);
 const noMore = ref(false);
+const firstItem = ref('');
+const lastItem = ref('');
+const pageContext = ref('');
+let feedsRequestVersion = 0;
+
+const nodePageUrl = computed(() => {
+  const params = new URLSearchParams({ nodeType: nodeType.value, nodeId: nodeId.value });
+  return `#/feed/nodeFeedList?${params.toString()}`;
+});
 
 const pageTitle = computed(() => nodeTitle.value || '版块节点');
 
@@ -180,32 +194,63 @@ async function fetchNodeHeader() {
 }
 
 async function fetchFeeds(isLoadMore = false) {
-  if (!nodeId.value || feedsLoading.value || noMore.value) return;
+  if (!nodeId.value || (isLoadMore && (feedsLoading.value || noMore.value))) return;
   feedsLoading.value = true;
   if (!isLoadMore) feedsError.value = false;
+  const currentRequest = ++feedsRequestVersion;
+  const currentPage = page.value;
   try {
-    const res = await CoolapkTauriAPI.getNodeFeeds(nodeType.value, nodeId.value, page.value);
-    const newFeeds = (res && res.data && Array.isArray(res.data)) ? res.data : [];
-    if (newFeeds.length === 0) {
-      noMore.value = true;
-    } else {
-      if (isLoadMore) {
-        feeds.value.push(...newFeeds);
-      } else {
-        feeds.value = newFeeds;
+    let parsed: ReturnType<typeof parseDiscoveryPage>;
+    try {
+      const response = await CoolapkTauriAPI.getDiscoveryPageData({ url: nodePageUrl.value, title: pageTitle.value, page: currentPage, firstItem: firstItem.value, lastItem: lastItem.value, pageContext: pageContext.value || JSON.stringify({ source: 'desktop-node', nodeType: nodeType.value, nodeId: nodeId.value }) });
+      parsed = parseDiscoveryPage(response, currentPage);
+      // 兼容旧节点接口：只有在原始页面没有实体时才回退，避免丢失型号/闲置实体。
+      if (!isLoadMore && parsed.items.length === 0) {
+        const fallbackResponse = await CoolapkTauriAPI.getNodeFeeds(nodeType.value, nodeId.value, currentPage);
+        parsed = parseDiscoveryPage(fallbackResponse, currentPage);
       }
-      page.value++;
+    } catch (rawError) {
+      if (isLoadMore) throw rawError;
+      const fallbackResponse = await CoolapkTauriAPI.getNodeFeeds(nodeType.value, nodeId.value, currentPage);
+      parsed = parseDiscoveryPage(fallbackResponse, currentPage);
     }
+    if (currentRequest !== feedsRequestVersion) return;
+    if (isLoadMore) {
+      const existingKeys = new Set(pageEntities.value.map((item, index) => getEntityKey(item, index)));
+      pageEntities.value = [...pageEntities.value, ...parsed.items.filter((item, index) => !existingKeys.has(getEntityKey(item, pageEntities.value.length + index)))];
+    } else {
+      pageEntities.value = parsed.items;
+    }
+    firstItem.value = parsed.firstItem;
+    lastItem.value = parsed.lastItem;
+    pageContext.value = parsed.pageContext || pageContext.value;
+    noMore.value = parsed.items.length === 0 || !parsed.hasMore;
+    page.value++;
   } catch (err) {
-    feedsError.value = true;
+    if (currentRequest === feedsRequestVersion) feedsError.value = true;
     console.warn('获取节点动态失败', err);
   } finally {
-    feedsLoading.value = false;
+    if (currentRequest === feedsRequestVersion) feedsLoading.value = false;
   }
 }
 
 function handleFeedDeleted(id: string | number) {
-  feeds.value = feeds.value.filter((f: any) => String(f.id) !== String(id));
+  pageEntities.value = pageEntities.value.filter((item) => String(item.id) !== String(id));
+}
+
+function openEntity(entity: DiscoveryEntity) {
+  const routeInfo = resolveDiscoveryRoute(entity);
+  if (!routeInfo) return;
+  if (routeInfo.kind === 'web') {
+    void CoolapkTauriAPI.openUrl(routeInfo.target, 'internal');
+    return;
+  }
+  const localRoute = normalizeCoolapkRoute(routeInfo.target);
+  if (localRoute && router.resolve(localRoute).matched.length > 0) {
+    void router.push(localRoute);
+    return;
+  }
+  void router.push({ path: '/page', query: { url: routeInfo.target, title: routeInfo.title || String(entity.title || ''), renderer: 'discovery' } });
 }
 
 function retryFeeds() {
@@ -257,10 +302,14 @@ function focusSearch() {
 }
 
 function resetState() {
+  feedsRequestVersion += 1;
   page.value = 1;
   noMore.value = false;
   feedsError.value = false;
-  feeds.value = [];
+  pageEntities.value = [];
+  firstItem.value = '';
+  lastItem.value = '';
+  pageContext.value = '';
   nodeInfo.value = null;
 }
 

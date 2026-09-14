@@ -58,6 +58,15 @@
       :answer-mode="isAnswerCard"
     />
 
+    <!-- APK 闲置动态的外部商品链接，保留为显式按钮避免被整张动态卡片点击吞掉。 -->
+    <div v-if="secondHandLink" class="secondhand-link-card">
+      <div class="secondhand-link-copy">
+        <span class="secondhand-link-source"><i class="fas fa-link"></i>{{ secondHandLinkSource }}链接</span>
+        <span class="secondhand-link-description">查看闲置商品详情</span>
+      </div>
+      <button type="button" class="secondhand-link-button" @click.stop="openSecondHandLink"><i class="fas fa-arrow-up-right-from-square"></i>打开</button>
+    </div>
+
     <VoteCard v-if="feed.vote" :feed-id="feed.id" :vote="feed.vote" />
 
     <FeedVideoCard :feed="feed" />
@@ -350,6 +359,30 @@ watch(authorUid, (newUid) => {
 });
 
 const feedImages = computed<FeedImageInput[]>(() => extractFeedImageInputs(props.feed));
+
+const secondHandInfo = computed<Record<string, any> | null>(() => {
+  const raw = (props.feed as any).ershou_info || (props.feed as any).ershouInfo || (props.feed as any).second_hand_info || (props.feed as any).secondHandInfo;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+});
+
+const secondHandLink = computed(() => {
+  const rawUrl = secondHandInfo.value?.link_url || secondHandInfo.value?.linkUrl || secondHandInfo.value?.url || secondHandInfo.value?.link;
+  const url = String(rawUrl || '').trim();
+  return /^https?:\/\//i.test(url) ? url : '';
+});
+
+const secondHandLinkSource = computed(() => String(secondHandInfo.value?.link_source || secondHandInfo.value?.linkSource || '闲鱼').trim() || '闲鱼');
+
+function openSecondHandLink() {
+  if (secondHandLink.value) void CoolapkTauriAPI.openUrl(secondHandLink.value, 'internal');
+}
 
 const emit = defineEmits<{
   (e: 'deleted', id: string | number): void;
@@ -1722,6 +1755,61 @@ function formatRichText(text: string) {
 
 .history-status button {
   color: var(--brand-primary);
+}
+
+.secondhand-link-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary) 22%, var(--border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--brand-primary) 7%, var(--surface));
+}
+
+.secondhand-link-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.secondhand-link-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: var(--font-size-sub);
+  font-weight: var(--font-weight-semibold);
+}
+
+.secondhand-link-source i {
+  color: var(--brand-primary);
+}
+
+.secondhand-link-description {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-caption);
+}
+
+.secondhand-link-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-inverse);
+  background: var(--brand-primary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+
+.secondhand-link-button:hover {
+  filter: brightness(0.94);
 }
 
 .more-menu-backdrop {

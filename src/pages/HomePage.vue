@@ -295,6 +295,7 @@ import { CoolapkTauriAPI } from '../api/coolapk';
 import { useSettingsStore } from '../stores/settings';
 import { hasFeedRenderableContent, shouldHideFeed } from '../utils/feedFilter';
 import { decodeDiscoveryRouteSegment, getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
+import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import type { FeedLayout, ConfigPageTab } from '../types/settings';
 import type { DiscoveryEntity } from '../types/discovery';
 import { resolvePreferredHomeTab } from '../utils/homeTabs';
@@ -413,7 +414,14 @@ const isLiveTab = computed(() => {
   return t.page_name === 'V9_HOME_TAB_LIVE' || t.url.includes('V9_HOME_TAB_LIVE') || t.title === '直播';
 });
 
-const isPageEntityTab = computed(() => isTopicPageTab.value || isNewDevicePageTab.value || isLiveTab.value);
+const isSecondHandPageTab = computed(() => {
+  const t = currentActiveTabObj.value;
+  if (!t) return /(?:ershou|secondhand|good_goods_home)/i.test(activeTab.value);
+  const target = `${t.page_name || ''} ${t.url || ''} ${t.title || ''}`;
+  return /(?:ershou|secondhand|good_goods_home|闲置|二手)/i.test(target);
+});
+
+const isPageEntityTab = computed(() => isTopicPageTab.value || isNewDevicePageTab.value || isLiveTab.value || isSecondHandPageTab.value);
 
 const isQuestionTab = computed(() => {
   return isQuestionHomeTab(currentActiveTabObj.value) || isQuestionHomeTab({ page_name: activeTab.value });
@@ -1205,6 +1213,7 @@ function openDyh(dyhId: any) {
 
 function navigatePageEntity(target: string, title: string) {
   const clean = target.replace(/^#/, '');
+  const secondHand = clean.match(/^\/feed\/ershouList(?:\?|$)/i);
   const user = clean.match(/^\/user\/([^/?#]+)/i);
   const feed = clean.match(/^\/feed\/([^/?#]+)/i);
   const app = clean.match(/^\/(?:app|apk)\/([^/?#]+)/i);
@@ -1212,7 +1221,11 @@ function navigatePageEntity(target: string, title: string) {
   const topic = clean.match(/^\/topic\/([^/?#]+)/i);
   const dyh = clean.match(/^\/dyh\/([^/?#]+)/i);
   const live = clean.match(/^\/live\/([^/?#]+)/i);
-  if (user) void router.push(`/user/${user[1]}`);
+  if (secondHand) {
+    const localRoute = normalizeCoolapkRoute(clean);
+    if (localRoute) void router.push(localRoute);
+    else void router.push({ path: '/page', query: { url: target, title, renderer: 'discovery' } });
+  } else if (user) void router.push(`/user/${user[1]}`);
   else if (feed) void router.push(`/feed/${feed[1]}`);
   else if (app) void router.push(`/app/${encodeURIComponent(decodeDiscoveryRouteSegment(app[1]))}`);
   else if (product) void router.push(`/product/${product[1]}`);

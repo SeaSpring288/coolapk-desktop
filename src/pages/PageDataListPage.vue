@@ -16,7 +16,7 @@
       <div v-else-if="dynamicItems.length === 0" class="state-wrapper">
         <EmptyState title="暂无内容" />
       </div>
-      <div v-else class="feed-list discovery-page-list">
+      <div v-else :class="['feed-list', 'discovery-page-list', { 'topic-list-layout': isTopicListPage }]">
         <DiscoveryEntityCard v-for="(item, index) in dynamicItems" :key="getEntityKey(item, index)" :entity="item" @open="openEntity" />
         <div v-if="loadingMore" class="loading-more"><LoadingState text="加载更多..." /></div>
       </div>
@@ -57,6 +57,7 @@ import ErrorState from '../components/common/ErrorState.vue';
 import { useSettingsStore } from '../stores/settings';
 import { hasFeedRenderableContent, shouldHideFeed } from '../utils/feedFilter';
 import { decodeDiscoveryRouteSegment, getEntityKey, parseDiscoveryPage, resolveDiscoveryRoute } from '../utils/discovery';
+import { normalizeCoolapkRoute } from '../utils/coolapkRoute';
 import type { DiscoveryEntity } from '../types/discovery';
 
 const route = useRoute();
@@ -87,6 +88,7 @@ function extractServerPageTarget(value: string): string {
 
 const dynamicPageTarget = computed(() => extractServerPageTarget(pageUrl.value) || (route.query.renderer === 'discovery' ? pageUrl.value.trim() : ''));
 const isDynamicPage = computed(() => Boolean(dynamicPageTarget.value) && (route.query.renderer === 'discovery' || Boolean(extractServerPageTarget(pageUrl.value))));
+const isTopicListPage = computed(() => /^\/?topic\/tagList(?:\?|$)/i.test(dynamicPageTarget.value.trim().replace(/^#\/?/, '')));
 
 function extractList(response: any): any[] {
   if (Array.isArray(response)) return response;
@@ -186,6 +188,7 @@ function navigateDataList(target: string, title: string) {
 
 function navigateNative(target: string, title: string) {
   const clean = target.replace(/^#/, '');
+  const secondHand = clean.match(/^\/feed\/ershouList(?:\?|$)/i);
   const user = clean.match(/^\/user\/([^/?#]+)/);
   const feed = clean.match(/^\/feed\/([^/?#]+)/);
   const app = clean.match(/^\/apk\/([^/?#]+)/);
@@ -193,7 +196,11 @@ function navigateNative(target: string, title: string) {
   const topic = clean.match(/^\/topic\/([^/?#]+)/);
   const dyh = clean.match(/^\/dyh\/([^/?#]+)/);
   const live = clean.match(/^\/live\/([^/?#]+)/);
-  if (user) void router.push(`/user/${user[1]}`);
+  if (secondHand) {
+    const localRoute = normalizeCoolapkRoute(clean);
+    if (localRoute) void router.push(localRoute);
+    else navigateDataList(target, title);
+  } else if (user) void router.push(`/user/${user[1]}`);
   else if (feed) void router.push(`/feed/${feed[1]}`);
   else if (app) void router.push(`/app/${encodeURIComponent(decodeDiscoveryRouteSegment(app[1]))}`);
   else if (product) void router.push(`/product/${product[1]}`);
@@ -219,4 +226,6 @@ onMounted(() => { loadCurrentPage(true); });
 .page-container { width: 100%; max-width: 100%; flex: 1 1 auto; min-width: 0; height: 100%; min-height: 0; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .page-data-header { display: flex; align-items: center; padding-bottom: 18px; }
 .loading-more { padding: 16px; text-align: center; }
+.discovery-page-list.topic-list-layout { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; align-content: start; padding: 16px; }
+.discovery-page-list.topic-list-layout > .loading-more { grid-column: 1 / -1; }
 </style>
