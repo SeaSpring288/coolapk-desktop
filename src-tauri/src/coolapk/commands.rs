@@ -15,6 +15,9 @@ pub struct AppState {
 static IMAGE_SAVE_LOCK: Mutex<()> = Mutex::new(());
 static IMAGE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+/// 登录窗口使用桌面 Chromium UA，避免网易易盾把鼠标事件误判为仅支持触摸事件。
+const LOGIN_WEBVIEW_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+
 #[tauri::command]
 pub async fn get_index_v8_feeds(state: State<'_, AppState>, page: u32) -> Result<Value, String> {
     state.client.get_index_v8_feeds(page).await
@@ -2185,7 +2188,7 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
         tauri::WebviewUrl::External(login_url),
     )
     .title("酷安官方授权登录")
-    .user_agent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1")
+    .user_agent(LOGIN_WEBVIEW_USER_AGENT)
     .inner_size(440.0, 620.0)
     .center()
     .initialization_script(js_script)
@@ -2301,7 +2304,13 @@ pub async fn open_login_webview(app: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod login_callback_tests {
-    use super::{extract_access_code_from_url, extract_callback_param, extract_ck_from_url};
+    use super::{extract_access_code_from_url, extract_callback_param, extract_ck_from_url, LOGIN_WEBVIEW_USER_AGENT};
+
+    #[test]
+    fn login_webview_ua_keeps_desktop_mouse_events() {
+        assert!(LOGIN_WEBVIEW_USER_AGENT.contains("Windows NT"));
+        assert!(!LOGIN_WEBVIEW_USER_AGENT.contains("Mobile"));
+    }
 
     #[test]
     fn extracts_access_code_and_cookie_from_hash_callback() {
