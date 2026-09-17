@@ -745,6 +745,33 @@ export class CoolapkTauriAPI {
     });
   }
 
+  // 收藏单管理：字段和酷安 APK 的 collection/create、collection/update 保持一致。
+  static async createCollection(options: { title: string; description?: string; cover?: string; isOpen?: number; sourceId?: string }) {
+    return await invokeNative('create_collection', {
+      title: options.title,
+      description: options.description || '',
+      cover: options.cover || '',
+      isOpen: options.isOpen ?? 1,
+      sourceId: options.sourceId || '',
+    }, { retry: false, kind: 'feed' });
+  }
+
+  static async updateCollection(id: string, title: string, description: string = '', cover: string = '', isOpen: number = 1) {
+    return await invokeNative('update_collection', { id, title, description, cover, isOpen }, { retry: false, kind: 'feed' });
+  }
+
+  static async deleteCollection(id: string) {
+    return await invokeNative('delete_collection', { id }, { retry: false, kind: 'feed' });
+  }
+
+  static async removeCollectionItem(itemId: string) {
+    return await invokeNative('remove_collection_item', { itemId }, { retry: false, kind: 'feed' });
+  }
+
+  static async clearCollectionInvalidItems(collectionId: string) {
+    return await invokeNative('clear_collection_invalid_items', { collectionId }, { retry: false, kind: 'feed' });
+  }
+
   static async updateFeedCloudCollections(
     feedId: string,
     collectionIds: string,
@@ -964,6 +991,19 @@ export class CoolapkTauriAPI {
 
   static async getFollowedTopics(page: number = 1) {
     return await invokeNative('get_followed_topics', { page });
+  }
+
+  // “我的关注”其余三个列表沿用 APK 的服务端页面路由，避免在桌面端猜测返回实体结构。
+  static async getFollowedCollections(page: number = 1) {
+    return await this.getDiscoveryPageData({ url: '#/collection/followList?&title=我关注的收藏单', title: '我关注的收藏单', page });
+  }
+
+  static async getFollowedQuestions(page: number = 1) {
+    return await this.getDiscoveryPageData({ url: '#/feed/questionFollowList?&title=我关注的问题', title: '我关注的问题', page });
+  }
+
+  static async getFollowedProducts(page: number = 1) {
+    return await this.getDiscoveryPageData({ url: '#/product/followProductList?&title=我关注的数码吧', title: '我关注的数码吧', page });
   }
 
   static async searchUsers(query: string, page: number = 1) {

@@ -144,6 +144,37 @@ describe('CoolapkTauriAPI 内容新页接口封装', () => {
     });
   });
 
+  it('收藏单创建、编辑和删除调用对应原生命令', async () => {
+    await CoolapkTauriAPI.createCollection({ title: '旅行收藏', description: '路线', cover: 'https://image.coolapk.com/cover.jpg', isOpen: 1, sourceId: '' });
+    expect(invoke).toHaveBeenCalledWith('create_collection', {
+      title: '旅行收藏',
+      description: '路线',
+      cover: 'https://image.coolapk.com/cover.jpg',
+      isOpen: 1,
+      sourceId: '',
+    });
+    await CoolapkTauriAPI.updateCollection('42', '新标题', '新描述', '', 0);
+    expect(invoke).toHaveBeenCalledWith('update_collection', { id: '42', title: '新标题', description: '新描述', cover: '', isOpen: 0 });
+    await CoolapkTauriAPI.deleteCollection('42');
+    expect(invoke).toHaveBeenCalledWith('delete_collection', { id: '42' });
+  });
+
+  it('收藏单条目管理调用移除和清理失效命令', async () => {
+    await CoolapkTauriAPI.removeCollectionItem('item-42');
+    expect(invoke).toHaveBeenCalledWith('remove_collection_item', { itemId: 'item-42' });
+    await CoolapkTauriAPI.clearCollectionInvalidItems('collection-42');
+    expect(invoke).toHaveBeenCalledWith('clear_collection_invalid_items', { collectionId: 'collection-42' });
+  });
+
+  it('我的关注的收藏单、问题和数码吧沿用 APK 页面路由', async () => {
+    await CoolapkTauriAPI.getFollowedCollections(2);
+    expect(invoke).toHaveBeenCalledWith('get_discovery_page_data', expect.objectContaining({ url: '#/collection/followList?&title=我关注的收藏单', title: '我关注的收藏单', page: 2 }));
+    await CoolapkTauriAPI.getFollowedQuestions(3);
+    expect(invoke).toHaveBeenCalledWith('get_discovery_page_data', expect.objectContaining({ url: '#/feed/questionFollowList?&title=我关注的问题', title: '我关注的问题', page: 3 }));
+    await CoolapkTauriAPI.getFollowedProducts(4);
+    expect(invoke).toHaveBeenCalledWith('get_discovery_page_data', expect.objectContaining({ url: '#/product/followProductList?&title=我关注的数码吧', title: '我关注的数码吧', page: 4 }));
+  });
+
   it('闲置品牌列表调用 APK 对应命令', async () => {
     await CoolapkTauriAPI.getSecondHandBrandList();
     expect(invoke).toHaveBeenCalledWith('get_secondhand_brand_list', {});

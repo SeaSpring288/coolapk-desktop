@@ -68,6 +68,9 @@ export interface NavVisibilitySettings {
   my_feeds: boolean;
   followed_nodes: boolean;
   followed_topics: boolean;
+  followed_collections: boolean;
+  followed_questions: boolean;
+  followed_products: boolean;
   recent_contacts: boolean;
   recycle_bin: boolean;
   hidden_replies: boolean;

@@ -1804,6 +1804,9 @@ impl CoolapkClient {
         copy_first_field(&mut cleaned, obj, "media", &["media"]);
         // 用户评论列表会把所属原动态放在 feed 字段中，FeedCard 用它展示引用上下文。
         copy_first_field(&mut cleaned, obj, "feed", &["feed"]);
+        // 收藏单内容需要保留 collection_item_info，移除条目接口使用其中的独立 item id。
+        copy_first_field(&mut cleaned, obj, "collectionItem", &["collection_item_info", "collectionItemInfo", "collectionItem", "collection_item"]);
+        copy_first_field(&mut cleaned, obj, "collectionItemId", &["collectionItemId", "collection_item_id", "itemId", "item_id"]);
 
         Some(cleaned)
     }
@@ -4093,7 +4096,7 @@ impl CoolapkClient {
                 if id.is_empty() || title.is_empty() {
                     continue;
                 }
-                let raw_cover = get_str_by_keys(obj, &["cover", "pic", "logo"]).unwrap_or_default();
+                let raw_cover = get_str_by_keys(obj, &["cover", "coverPic", "cover_pic", "pic", "logo"]).unwrap_or_default();
                 let cover = if raw_cover.starts_with("http") {
                     raw_cover
                 } else if !raw_cover.is_empty() {
@@ -4104,14 +4107,34 @@ impl CoolapkClient {
                 } else {
                     String::new()
                 };
+                let collection_uid = get_str_by_keys(obj, &["uid", "userId", "user_id"]).unwrap_or_default();
+                let source_id = get_str_by_keys(obj, &["sourceId", "source_id"]).unwrap_or_default();
+                let is_open = obj
+                    .get("isOpen")
+                    .or_else(|| obj.get("is_open"))
+                    .or_else(|| obj.get("open"))
+                    .cloned()
+                    .unwrap_or(json!(1));
+                let default_collected = obj
+                    .get("defaultCollected")
+                    .or_else(|| obj.get("default_collected"))
+                    .or_else(|| obj.get("isDefault"))
+                    .or_else(|| obj.get("is_default"))
+                    .cloned()
+                    .unwrap_or(json!(0));
                 collections.push(json!({
                     "id": id,
                     "title": title,
-                    "cover": cover,
+                    "cover": cover.clone(),
+                    "coverPic": cover,
                     "description": get_str_by_keys(obj, &["description", "summary"]).unwrap_or_default(),
-                    "itemNum": get_u64_by_keys(obj, &["itemNum", "itemnum", "count"]),
-                    "favnum": get_u64_by_keys(obj, &["favnum", "fav_num"]),
-                    "follownum": get_u64_by_keys(obj, &["follownum", "follow_num"])
+                    "itemNum": get_u64_by_keys(obj, &["itemNum", "item_num", "itemnum", "feedNum", "feed_num", "count"]),
+                    "favnum": get_u64_by_keys(obj, &["favnum", "fav_num", "likeNum", "like_num"]),
+                    "follownum": get_u64_by_keys(obj, &["follownum", "followNum", "follow_num"]),
+                    "uid": collection_uid,
+                    "sourceId": source_id,
+                    "isOpen": is_open,
+                    "defaultCollected": default_collected
                 }));
             }
         }
@@ -4147,6 +4170,105 @@ impl CoolapkClient {
             self.api_get(
                 "/v6/collection/detail",
                 &[("id", collection_id.to_string())],
+            )
+            .await?,
+        )
+    }
+
+    /// 创建收藏单，字段顺序和酷安 APK 的 multipart 请求保持一致。
+    /// 数据来源: POST /v6/collection/create
+    pub async fn create_collection(
+        &self,
+        title: &str,
+        description: &str,
+        cover: &str,
+        is_open: i32,
+        source_id: &str,
+    ) -> Result<Value, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("收藏单标题不能为空".to_string());
+        }
+        let form = reqwest::multipart::Form::new()
+            .text("isOpen", if is_open == 0 { "0" } else { "1" })
+            .text("pic", cover.trim().to_string())
+            .text("description", description.trim().to_string())
+            .text("title", title.to_string())
+            .text("sourceId", source_id.trim().to_string());
+        self.request_multipart_api("/v6/collection/create", form).await
+    }
+
+    /// 编辑收藏单，不能把 id 放到查询参数中，APK 会将它作为表单字段提交。
+    /// 数据来源: POST /v6/collection/update
+    pub async fn update_collection(
+        &self,
+        collection_id: &str,
+        title: &str,
+        description: &str,
+        cover: &str,
+        is_open: i32,
+    ) -> Result<Value, String> {
+        let collection_id = collection_id.trim();
+        let title = title.trim();
+        if collection_id.is_empty() || title.is_empty() {
+            return Err("收藏单 ID 和标题不能为空".to_string());
+        }
+        let form = [
+            ("id", collection_id.to_string()),
+            ("title", title.to_string()),
+            ("description", description.trim().to_string()),
+            ("pic", cover.trim().to_string()),
+            ("isOpen", if is_open == 0 { "0".to_string() } else { "1".to_string() }),
+        ];
+        wrap_api_data(self.api_post("/v6/collection/update", &[], &form).await?)
+    }
+
+    /// 删除收藏单；酷安服务端会同时取消其中内容的归属。
+    /// 数据来源: POST /v6/collection/delete
+    pub async fn delete_collection(&self, collection_id: &str) -> Result<Value, String> {
+        let collection_id = collection_id.trim();
+        if collection_id.is_empty() {
+            return Err("收藏单 ID 不能为空".to_string());
+        }
+        wrap_api_data(
+            self.api_post(
+                "/v6/collection/delete",
+                &[],
+                &[("id", collection_id.to_string())],
+            )
+            .await?,
+        )
+    }
+
+    /// 从收藏单中移除一条内容，itemId 不是动态本身的 id。
+    /// 数据来源: POST /v6/collection/removeItem
+    pub async fn remove_collection_item(&self, item_id: &str) -> Result<Value, String> {
+        let item_id = item_id.trim();
+        if item_id.is_empty() {
+            return Err("收藏单条目 ID 不能为空".to_string());
+        }
+        wrap_api_data(
+            self.api_post(
+                "/v6/collection/removeItem",
+                &[],
+                &[("itemId", item_id.to_string())],
+            )
+            .await?,
+        )
+    }
+
+    /// 清理收藏单中的失效内容，服务端会异步处理。
+    /// 数据来源: POST /v6/collection/removeUnUseItem
+    pub async fn clear_collection_invalid_items(&self, collection_id: &str) -> Result<Value, String> {
+        let collection_id = collection_id.trim();
+        if collection_id.is_empty() {
+            return Err("收藏单 ID 不能为空".to_string());
+        }
+        wrap_api_data(
+            self.api_post(
+                "/v6/collection/removeUnUseItem",
+                &[],
+                &[("colId", collection_id.to_string())],
             )
             .await?,
         )

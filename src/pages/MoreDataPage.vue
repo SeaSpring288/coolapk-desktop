@@ -26,12 +26,12 @@
       </div>
 
       <div v-else class="entity-list">
-        <button v-for="(item, index) in items" :key="entityKey(item, index)" class="entity-row" type="button" @click="openEntity(item)">
+        <div v-for="(item, index) in items" :key="entityKey(item, index)" class="entity-row" role="button" tabindex="0" @click="openEntity(item)" @keydown.enter.prevent="openEntity(item)">
           <AppAvatar :src="entityImage(item)" size="md" :alt="entityTitle(item)" />
           <span class="entity-main"><strong>{{ entityTitle(item) }}</strong><small>{{ entitySubtitle(item) }}</small></span>
-          <button v-if="mode === 'topics'" class="row-action" type="button" @click.stop="unfollowTopic(item)">取消关注</button>
+          <button v-if="canUnfollow" class="row-action" type="button" :disabled="unfollowPendingKey === entityKey(item, index)" @click.stop="unfollowItem(item, index)">{{ unfollowPendingKey === entityKey(item, index) ? '处理中...' : '取消关注' }}</button>
           <i v-else class="fas fa-chevron-right row-arrow"></i>
-        </button>
+        </div>
         <div class="pagination-footer"><LoadingState v-if="loadingMore" text="正在加载更多..." /><span v-else-if="noMore">已加载全部内容</span></div>
       </div>
     </template>
@@ -49,6 +49,8 @@ import EmptyState from '../components/common/EmptyState.vue';
 import ErrorState from '../components/common/ErrorState.vue';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useAuthStore } from '../stores/auth';
+import { getErrorMessage } from '../utils/errors';
+import { showToast } from '../utils/toast';
 
 const props = defineProps<{ mode?: string; embedded?: boolean }>();
 const embedded = props.embedded === true;
@@ -66,6 +68,9 @@ const error = ref('');
 const catalog: Record<string, { title: string; icon: string; subtitle: string; empty: string; placeholder?: string }> = {
   nodes: { title: '我关注的论坛', icon: 'fas fa-comments', subtitle: '同步账号关注的论坛与节点', empty: '关注的论坛会显示在这里' },
   topics: { title: '我关注的话题', icon: 'fas fa-hashtag', subtitle: '真实读取关注话题，可直接取消关注', empty: '暂无关注话题' },
+  collections: { title: '我关注的收藏单', icon: 'fas fa-folder-open', subtitle: '同步账号关注的收藏单，可直接取消关注', empty: '暂无关注的收藏单' },
+  questions: { title: '我关注的问题', icon: 'fas fa-circle-question', subtitle: '同步账号关注的问题，可直接取消关注', empty: '暂无关注的问题' },
+  products: { title: '我关注的数码吧', icon: 'fas fa-mobile-screen-button', subtitle: '同步账号关注的数码产品，可直接取消关注', empty: '暂无关注的数码产品' },
   contacts: { title: '最近联系人', icon: 'far fa-address-book', subtitle: '同步最近私信联系人，点击进入会话', empty: '暂无最近联系人' },
   recycle: { title: '内容回收站', icon: 'fas fa-trash-can', subtitle: '仅账号具备审核权限时可读取被删/垃圾动态', empty: '暂无回收站内容' },
   devices: { title: '我的设备', icon: 'fas fa-mobile-screen-button', subtitle: '读取账号拥有的数码设备；官方未公开桌面端增删改接口', empty: '暂无已拥有设备' },
@@ -77,11 +82,26 @@ const hiddenFeedId = computed(() => String(route.query.feedId || '').trim());
 const requiresLogin = computed(() => mode.value !== 'votes');
 const isPlaceholder = computed(() => Boolean(meta.value.placeholder) && !hiddenFeedId.value);
 const isFeedMode = computed(() => mode.value === 'recycle' || (mode.value === 'hidden' && Boolean(hiddenFeedId.value)));
+const canUnfollow = computed(() => ['topics', 'collections', 'questions', 'products'].includes(mode.value));
+const unfollowPendingKey = ref('');
 
-function entityKey(item: any, index: number) { return String(item?.id || item?.entityId || item?.uid || item?.ukey || index); }
-function entityTitle(item: any) { return item?.title || item?.name || item?.tag || item?.topicName || item?.username || item?.userInfo?.username || item?.deviceTitle || '未命名'; }
-function entitySubtitle(item: any) { return item?.description || item?.intro || item?.subTitle || item?.message || item?.ukey || item?.packageName || ''; }
-function entityImage(item: any) { return item?.logo || item?.icon || item?.pic || item?.userAvatar || item?.userInfo?.userAvatar || ''; }
+function entityKey(item: any, index: number) { return String(item?.id || item?.entityId || item?.collectionId || item?.questionId || item?.productId || item?.uid || item?.ukey || index); }
+function entityTitle(item: any) { return item?.title || item?.name || item?.collectionTitle || item?.questionTitle || item?.productName || item?.tag || item?.topicName || item?.username || item?.userInfo?.username || item?.deviceTitle || '未命名'; }
+function entitySubtitle(item: any) { return item?.description || item?.intro || item?.subTitle || item?.message || item?.brandName || item?.model || item?.ukey || item?.packageName || ''; }
+function entityImage(item: any) { return item?.cover || item?.coverPic || item?.cover_pic || item?.logo || item?.icon || item?.pic || item?.userAvatar || item?.userInfo?.userAvatar || ''; }
+
+function extractList(response: any): any[] {
+  const data = response?.data;
+  const flatten = (items: any[]): any[] => items.flatMap(item => {
+    if (item && typeof item === 'object' && Array.isArray(item.entities) && !item.entityTemplate) return flatten(item.entities);
+    return [item];
+  });
+  if (Array.isArray(data)) return flatten(data);
+  for (const key of ['entities', 'list', 'rows', 'items', 'data']) {
+    if (Array.isArray(data?.[key])) return flatten(data[key]);
+  }
+  return [];
+}
 
 async function load(refresh = false) {
   if (loading.value || loadingMore.value || isPlaceholder.value) return;
@@ -98,7 +118,10 @@ async function load(refresh = false) {
     else if (mode.value === 'recycle') res = await CoolapkTauriAPI.getSpamFeedList(page.value);
     else if (mode.value === 'hidden') res = await CoolapkTauriAPI.getHiddenReplies(hiddenFeedId.value, page.value);
     else if (mode.value === 'devices') res = await CoolapkTauriAPI.getMyProductList(String(authStore.user?.uid), 'owner', page.value);
-    const incoming = Array.isArray(res?.data) ? res.data : [];
+    else if (mode.value === 'collections') res = await CoolapkTauriAPI.getFollowedCollections(page.value);
+    else if (mode.value === 'questions') res = await CoolapkTauriAPI.getFollowedQuestions(page.value);
+    else if (mode.value === 'products') res = await CoolapkTauriAPI.getFollowedProducts(page.value);
+    const incoming = extractList(res);
     if (!incoming.length || mode.value === 'nodes') noMore.value = true;
     const ids = new Set(items.value.map((item, index) => entityKey(item, index)));
     items.value.push(...incoming.filter((item: any, index: number) => !ids.has(entityKey(item, index))));
@@ -107,11 +130,32 @@ async function load(refresh = false) {
   finally { loading.value = false; loadingMore.value = false; }
 }
 
-async function unfollowTopic(item: any) {
-  const tag = String(item?.tag || item?.title || item?.name || '').trim();
-  if (!tag) return;
-  try { await CoolapkTauriAPI.unfollowTag(tag); items.value = items.value.filter((current) => current !== item); }
-  catch (err: any) { error.value = err?.message || '取消关注失败'; }
+function followedTargetId(item: any): string {
+  if (mode.value === 'topics') return String(item?.tag || item?.title || item?.name || '').trim();
+  if (mode.value === 'collections') return String(item?.collectionId || item?.id || item?.entityId || '').trim();
+  if (mode.value === 'questions') return String(item?.questionId || item?.id || item?.entityId || '').trim();
+  return String(item?.productId || item?.id || item?.entityId || '').trim();
+}
+
+async function unfollowItem(item: any, index: number) {
+  if (!canUnfollow.value) return;
+  const targetId = followedTargetId(item);
+  const pendingKey = entityKey(item, index);
+  if (!targetId || unfollowPendingKey.value) return;
+  unfollowPendingKey.value = pendingKey;
+  try {
+    if (mode.value === 'topics') await CoolapkTauriAPI.unfollowTag(targetId);
+    else if (mode.value === 'collections') await CoolapkTauriAPI.unfollowCollection(targetId);
+    else if (mode.value === 'questions') await CoolapkTauriAPI.unfollowQuestion(targetId);
+    else await CoolapkTauriAPI.changeProductFollowStatus(targetId, 0);
+    items.value = items.value.filter((current, currentIndex) => entityKey(current, currentIndex) !== pendingKey);
+    showToast('已取消关注', 'success');
+  } catch (err) {
+    error.value = getErrorMessage(err, '取消关注失败');
+    showToast(error.value, 'error');
+  } finally {
+    unfollowPendingKey.value = '';
+  }
 }
 
 function openEntity(item: any) {
@@ -121,6 +165,15 @@ function openEntity(item: any) {
   } else if (mode.value === 'topics') {
     const tag = item?.tag || item?.title || item?.name;
     if (tag) void router.push(`/topic/${encodeURIComponent(String(tag))}`);
+  } else if (mode.value === 'collections') {
+    const id = item?.collectionId || item?.id || item?.entityId;
+    if (id) void router.push({ path: '/favorites', query: { collectionId: String(id), collectionTitle: entityTitle(item) } });
+  } else if (mode.value === 'questions') {
+    const id = item?.questionId || item?.id || item?.entityId;
+    if (id) void router.push(`/question/${encodeURIComponent(String(id))}`);
+  } else if (mode.value === 'products') {
+    const id = item?.productId || item?.id || item?.entityId;
+    if (id) void router.push(`/product/${encodeURIComponent(String(id))}`);
   } else if (mode.value === 'devices') {
     const id = item?.id || item?.entityId;
     if (id) void router.push(`/product/${encodeURIComponent(String(id))}`);
@@ -148,12 +201,14 @@ onMounted(() => { if (requiresLogin.value ? authStore.isLoggedIn : true) void lo
 .entity-list { width: min(100%, 760px); margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-2); }
 .entity-row { display: flex; align-items: center; gap: var(--space-3); min-height: 68px; padding: var(--space-3) var(--space-4); color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); text-align: left; cursor: pointer; }
 .entity-row:hover { border-color: var(--brand-primary); background: var(--surface-hover); }
+.entity-row:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 .entity-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .entity-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .entity-main small { color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-arrow { color: var(--text-tertiary); }
 .row-action { padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--brand-primary); background: transparent; cursor: pointer; }
 .row-action:hover { background: var(--brand-soft); }
+.row-action:disabled { opacity: 0.6; cursor: wait; }
 .feed-list { width: min(100%, var(--feed-max-width)); margin: 0 auto; }
 .pagination-footer { padding: var(--space-5); text-align: center; color: var(--text-tertiary); font-size: var(--font-size-caption); }
 </style>

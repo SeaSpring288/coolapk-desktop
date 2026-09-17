@@ -581,6 +581,60 @@ pub async fn get_collection_detail(
 }
 
 #[tauri::command]
+pub async fn create_collection(
+    state: State<'_, AppState>,
+    title: String,
+    description: String,
+    cover: String,
+    is_open: i32,
+    source_id: String,
+) -> Result<Value, String> {
+    state
+        .client
+        .create_collection(&title, &description, &cover, is_open, &source_id)
+        .await
+}
+
+#[tauri::command]
+pub async fn update_collection(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+    description: String,
+    cover: String,
+    is_open: i32,
+) -> Result<Value, String> {
+    state
+        .client
+        .update_collection(&id, &title, &description, &cover, is_open)
+        .await
+}
+
+#[tauri::command]
+pub async fn delete_collection(state: State<'_, AppState>, id: String) -> Result<Value, String> {
+    state.client.delete_collection(&id).await
+}
+
+#[tauri::command]
+pub async fn remove_collection_item(
+    state: State<'_, AppState>,
+    item_id: String,
+) -> Result<Value, String> {
+    state.client.remove_collection_item(&item_id).await
+}
+
+#[tauri::command]
+pub async fn clear_collection_invalid_items(
+    state: State<'_, AppState>,
+    collection_id: String,
+) -> Result<Value, String> {
+    state
+        .client
+        .clear_collection_invalid_items(&collection_id)
+        .await
+}
+
+#[tauri::command]
 pub async fn follow_collection(
     state: State<'_, AppState>,
     collection_id: String,

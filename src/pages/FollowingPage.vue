@@ -12,8 +12,28 @@
       </div>
     </div>
 
-    <!-- 登录后的左右双列布局（左边：关注动态，右边：已关注酷友/粉丝列表侧边栏） -->
-    <div v-else class="following-layout">
+    <!-- 登录后的关注工作区，动态与其它关注内容共用同一入口 -->
+    <div v-else class="following-workspace">
+      <nav class="following-category-tabs" aria-label="关注分类">
+        <button
+          v-for="category in followCategoryOptions"
+          :key="category.key"
+          type="button"
+          :class="['following-category-tab', { active: selectedFollowCategory === category.key }]"
+          :aria-pressed="selectedFollowCategory === category.key"
+          @click="selectFollowCategory(category.key)"
+        >
+          <i :class="category.icon"></i>
+          {{ category.label }}
+        </button>
+      </nav>
+
+      <div v-if="selectedFollowCategory !== 'feeds'" class="following-category-panel">
+        <MoreDataPage :key="selectedFollowCategory" :mode="selectedFollowCategory" />
+      </div>
+
+      <!-- 关注动态与关注用户仍保留原有双列布局 -->
+      <div v-else class="following-layout">
       <!-- 左栏：关注动态列表 -->
       <div class="following-main">
         <!-- 筛选提示条（如果选中了特定酷友） -->
@@ -134,12 +154,13 @@
           </div>
         </div>
       </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useAuthStore } from '../stores/auth';
@@ -150,12 +171,42 @@ import AppAvatar from '../components/common/AppAvatar.vue';
 import AppButton from '../components/common/AppButton.vue';
 import LoadingState from '../components/common/LoadingState.vue';
 import EmptyState from '../components/common/EmptyState.vue';
+import MoreDataPage from './MoreDataPage.vue';
 
 const router = useRouter();
 const route = useRoute();
 const initialTab = String(route.query.tab || '');
 const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
+
+const followCategoryOptions = [
+  { key: 'feeds', label: '关注动态', icon: 'fas fa-stream' },
+  { key: 'nodes', label: '关注论坛', icon: 'fas fa-comments' },
+  { key: 'topics', label: '关注话题', icon: 'fas fa-hashtag' },
+  { key: 'collections', label: '收藏单', icon: 'fas fa-folder-open' },
+  { key: 'questions', label: '问题', icon: 'fas fa-circle-question' },
+  { key: 'products', label: '数码吧', icon: 'fas fa-mobile-screen-button' },
+] as const;
+type FollowCategory = typeof followCategoryOptions[number]['key'];
+
+function followCategoryFromRoute(value: unknown): FollowCategory {
+  const category = Array.isArray(value) ? value[0] : value;
+  return followCategoryOptions.some(item => item.key === category) ? category as FollowCategory : 'feeds';
+}
+
+const selectedFollowCategory = ref<FollowCategory>(followCategoryFromRoute(route.query.category));
+
+function selectFollowCategory(category: string) {
+  if (!followCategoryOptions.some(item => item.key === category)) return;
+  const nextCategory = category as FollowCategory;
+  if (selectedFollowCategory.value === nextCategory) return;
+  selectedFollowCategory.value = nextCategory;
+  void router.push({ path: '/following', query: nextCategory === 'feeds' ? {} : { category: nextCategory } });
+}
+
+watch(() => route.query.category, value => {
+  selectedFollowCategory.value = followCategoryFromRoute(value);
+});
 
 const loading = ref(false);
 const usersLoading = ref(false);
@@ -434,6 +485,51 @@ onUnmounted(unbindGlobalListeners);
   padding: 0;
   margin: 0;
   background-color: var(--surface);
+}
+
+.following-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 100%;
+}
+
+.following-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.following-category-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.following-category-tab:hover,
+.following-category-tab.active {
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
+  color: var(--brand-primary);
+}
+
+.following-category-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.following-category-panel :deep(.page-container) {
+  height: 100%;
 }
 
 .following-layout {
