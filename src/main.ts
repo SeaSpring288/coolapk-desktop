@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/index.css';
 import App from './App.vue';
@@ -7,6 +8,7 @@ import { router } from './router';
 import { CoolapkTauriAPI } from './api/coolapk';
 import { useSettingsStore } from './stores/settings';
 import { setupGlobalAlertProxy } from './utils/toast';
+import { normalizeCoolapkDeepLink } from './utils/coolapkRoute';
 
 // 启动全局原生 alert 代理拦截，统一呈现顶部高质感 Toast
 setupGlobalAlertProxy();
@@ -15,6 +17,7 @@ const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
 const settingsStore = useSettingsStore(pinia);
+let unregisterDeepLink: (() => void) | null = null;
 
 // 全局挂载外部链接打开器，供 DOM v-html 中的 <a onclick="..."> 安全调用
 (window as any).__openCoolapkUrl = (url: string) => {
@@ -78,11 +81,44 @@ window.addEventListener('unhandledrejection', (e) => {
   showGlobalError(msg);
 });
 
+async function focusMainWindow() {
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const mainWindow = getCurrentWindow();
+    await mainWindow.show();
+    await mainWindow.unminimize();
+    await mainWindow.setFocus();
+  } catch (error) {
+    console.warn('处理酷安深链时聚焦主窗口失败:', error);
+  }
+}
+
+async function navigateCoolapkDeepLinks(urls: string[]) {
+  const route = urls.map(normalizeCoolapkDeepLink).find((item): item is string => Boolean(item));
+  if (!route || !router.resolve(route).matched.length) return;
+  await router.isReady();
+  await router.push(route);
+  await focusMainWindow();
+}
+
+async function setupDeepLinkHandling() {
+  try {
+    // 已安装应用首次被深链启动时，从 getCurrent 读取启动参数；已有实例则接收 onOpenUrl 事件。
+    unregisterDeepLink = await onOpenUrl((urls) => { void navigateCoolapkDeepLinks(urls); });
+    const startupUrls = await getCurrent();
+    if (startupUrls?.length) await navigateCoolapkDeepLinks(startupUrls);
+  } catch (error) {
+    // 浏览器开发模式没有 Tauri 深链运行时，不影响普通页面启动。
+    console.warn('初始化酷安深链处理失败:', error);
+  }
+}
+
 async function bootstrap() {
   await settingsStore.initializeSettings();
   app.mount('#app');
   // 设置文件在应用挂载前读取；缩放等依赖 #app 的外观设置需在挂载后再应用一次。
   settingsStore.applyAppearance();
+  await setupDeepLinkHandling();
 }
 
 void bootstrap();

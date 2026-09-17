@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeCoolapkAppRoute, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../coolapkRoute';
+import { normalizeCoolapkAppRoute, normalizeCoolapkDeepLink, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../coolapkRoute';
 
 describe('酷安应用路由', () => {
   it('将应用详情查询链接转换为桌面端路由', () => {
@@ -19,6 +19,17 @@ describe('酷安应用路由', () => {
 });
 
 describe('酷安站内路由', () => {
+  it('将网页生成的 coolmarket 动态深链转换为桌面端路由并保留查询参数', () => {
+    expect(normalizeCoolapkDeepLink('coolmarket://www.coolapk.com/feed/73789197?s=share-token')).toBe('/feed/73789197?s=share-token');
+    expect(normalizeCoolapkDeepLink('coolmarket://m.coolapk.com/#/feed/73789197?rid=12')).toBe('/feed/73789197?rid=12');
+    expect(normalizeCoolapkDeepLink('coolmarket://com.coolapk.market/feed/73789197?s=share-token')).toBe('/feed/73789197?s=share-token');
+  });
+
+  it('拒绝非酷安主机或不支持的深链路径', () => {
+    expect(normalizeCoolapkDeepLink('coolmarket://evil.example/feed/73789197')).toBeNull();
+    expect(normalizeCoolapkDeepLink('coolmarket://www.coolapk.com/search?q=手机')).toBeNull();
+  });
+
   it('将服务端动态列表页转换为桌面端列表路由', () => {
     expect(normalizeCoolapkPageRoute('/page?url=V8_JINRI_NEWPHONE666')).toBe('/page?url=V8_JINRI_NEWPHONE666');
     expect(normalizeCoolapkRoute('/page?url=%2Fproduct%2FfeedList')).toBe('/page?url=%2Fproduct%2FfeedList');

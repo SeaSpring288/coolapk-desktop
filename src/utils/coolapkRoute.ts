@@ -45,6 +45,7 @@ export function normalizeCoolapkNativeRoute(href: string): string | null {
 }
 
 const COOLAPK_HOST_RE = /^(?:www\.|m\.)?coolapk\.com$/i;
+const COOLAPK_DEEP_LINK_HOST_RE = /^(?:(?:www\.|m\.)?coolapk\.com|com\.coolapk\.market)$/i;
 
 function extractCoolapkPath(href: string): string | null {
   const raw = String(href || '').trim();
@@ -56,6 +57,21 @@ function extractCoolapkPath(href: string): string | null {
     if (!['http:', 'https:'].includes(parsed.protocol) || !COOLAPK_HOST_RE.test(parsed.hostname)) return null;
     if (parsed.hash.startsWith('#/')) return parsed.hash.slice(1);
     return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/** 将酷安网页生成的 coolmarket 深链转换为桌面端原生路由。 */
+export function normalizeCoolapkDeepLink(href: string): string | null {
+  const raw = String(href || '').trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol.toLowerCase() !== 'coolmarket:' || !COOLAPK_DEEP_LINK_HOST_RE.test(parsed.hostname) || parsed.username || parsed.password || parsed.port) return null;
+    const webHost = COOLAPK_HOST_RE.test(parsed.hostname) ? parsed.hostname : 'www.coolapk.com';
+    return normalizeCoolapkRoute(`https://${webHost}${parsed.pathname}${parsed.search}${parsed.hash}`);
   } catch {
     return null;
   }

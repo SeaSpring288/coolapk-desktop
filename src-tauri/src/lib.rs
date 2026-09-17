@@ -540,6 +540,16 @@ pub fn run() {
     let state = AppState { client };
 
     tauri::Builder::default()
+        // 单实例插件必须先注册，才能把外部 deep link 转发到已运行的实例。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 重复启动时聚焦已有实例的主窗口；深链事件由插件转发给前端。
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -547,14 +557,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // 重复启动时聚焦已有实例的主窗口
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            }
-        }))
         // 兜底防线：主窗口若被导航到本地源以外的页面（如某个 v-html 遗漏的裸链接），
         // 加载完成后立即返回上一页，避免外部页面驻留在主窗口。
         // 点击路径已由前端全局 <a> 拦截 + 页面级 handleAnchorClick 处理。
@@ -565,6 +567,13 @@ pub fn run() {
         })
         .manage(state)
         .setup(|app| {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // 启动时同步当前程序的协议注册，确保正式程序和本地桌面版本都能被冷启动唤起。
+                app.deep_link().register_all()?;
+            }
+
             #[cfg(windows)]
             if let Err(error) = register_windows_notification_identity(app.app_handle()) {
                 eprintln!("注册酷安通知身份失败：{error}");
