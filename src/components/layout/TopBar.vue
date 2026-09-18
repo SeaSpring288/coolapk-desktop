@@ -30,6 +30,7 @@
           size="sm"
           @click="refreshPage"
         />
+        <BackToTop variant="nav" />
       </div>
       <div class="search-input-wrapper" @click="appStore.openSearch">
         <i class="fas fa-search search-icon"></i>
@@ -324,6 +325,7 @@ import {
 import AppButton from '../common/AppButton.vue';
 import AppIconButton from '../common/AppIconButton.vue';
 import AppAvatar from '../common/AppAvatar.vue';
+import BackToTop from '../common/BackToTop.vue';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 
 const router = useRouter();

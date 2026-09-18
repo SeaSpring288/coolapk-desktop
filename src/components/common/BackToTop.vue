@@ -1,5 +1,6 @@
 <template>
-  <Transition name="back-to-top-fade">
+  <!-- 悬浮模式（默认）：页面滚动时在右下角展示圆形悬浮按钮 -->
+  <Transition v-if="variant === 'floating'" name="back-to-top-fade">
     <button
       v-if="showButton"
       class="back-to-top-btn"
@@ -10,11 +11,32 @@
       <span class="tooltip-text">回到顶部</span>
     </button>
   </Transition>
+
+  <!-- 导航栏模式：复用在顶部导航栏等区域，作为标准图标按钮展示 -->
+  <AppIconButton
+    v-else-if="variant === 'nav'"
+    class="scroll-to-top-nav-btn"
+    icon="fas fa-arrow-up"
+    title="回到顶部"
+    aria-label="回到顶部"
+    size="sm"
+    @click="scrollToTop"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
+import AppIconButton from './AppIconButton.vue';
+
+const props = withDefaults(
+  defineProps<{
+    variant?: 'floating' | 'nav';
+  }>(),
+  {
+    variant: 'floating',
+  }
+);
 
 const route = useRoute();
 const showButton = ref(false);
@@ -54,18 +76,50 @@ function checkScroll(e?: Event) {
 
 function scrollToTop() {
   if (activeScrollTarget && 'scrollTo' in activeScrollTarget) {
-    activeScrollTarget.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
+    try {
+      activeScrollTarget.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    } catch {
+      (activeScrollTarget as HTMLElement).scrollTop = 0;
+    }
   } else {
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-    const scrollables = document.querySelectorAll<HTMLElement>('.custom-scrollbar, .feed-scroll-container, .page-container, .user-page-wrapper');
-    scrollables.forEach(el => {
-      el.scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  }
+
+  const selectors = '.custom-scrollbar, .feed-scroll-container, .page-container, .user-page-wrapper, .discover-scroll-container, .feed-detail-page, .downloads-page, main.app-main-content';
+  const scrollables = document.querySelectorAll<HTMLElement>(selectors);
+  let scrolledFound = false;
+
+  scrollables.forEach((el) => {
+    if (el.scrollTop > 0) {
+      scrolledFound = true;
+      try {
+        el.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {
+        el.scrollTop = 0;
+      }
+    }
+  });
+
+  if (!scrolledFound) {
+    const allScrollables = Array.from(document.querySelectorAll<HTMLElement>('*')).filter(
+      (el) => el.scrollTop > 0 && el.scrollHeight > el.clientHeight
+    );
+    allScrollables.forEach((el) => {
+      try {
+        el.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {
+        el.scrollTop = 0;
+      }
     });
   }
 }
@@ -80,6 +134,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.scroll-to-top-nav-btn:hover {
+  color: var(--brand-primary, #10b981);
+}
+
 .back-to-top-btn {
   position: fixed;
   bottom: 28px;
