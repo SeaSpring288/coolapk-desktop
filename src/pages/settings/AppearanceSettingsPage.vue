@@ -109,6 +109,14 @@
       <h4 class="group-title">侧边栏页面栏目显隐设置</h4>
       <p class="group-sub">根据个人使用习惯自由开启或关闭左侧侧边栏对应的功能栏目</p>
 
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">在“我的”中置顶“我的常去”</span>
+          <span class="row-sub">将“我的常去”移动到“我的”栏目子页面的最前面</span>
+        </div>
+        <AppSwitch v-model="settingsStore.settings.myRecentPinned" />
+      </div>
+
       <div class="nav-grid">
         <div v-for="nav in navItems" :key="nav.key" class="nav-toggle-card">
           <div class="nav-item-meta">

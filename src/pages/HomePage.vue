@@ -1149,8 +1149,10 @@ watch(activeHotRank, () => {
 
 const navIndex = ref(-1);
 const cardEls: (HTMLElement | null)[] = [];
+const cardInstances: any[] = [];
 
 function setCardRef(el: unknown, idx: number) {
+  cardInstances[idx] = el;
   const candidate = el as any;
   const element = candidate?.$el instanceof HTMLElement ? candidate.$el : candidate;
   cardEls[idx] = element instanceof HTMLElement ? element : null;
@@ -1193,6 +1195,22 @@ function handleFeedNav(delta: number) {
 
 const onNavNext = () => handleFeedNav(1);
 const onNavPrev = () => handleFeedNav(-1);
+const onNavComment = () => {
+  if (feeds.value.length === 0) return;
+  if (navIndex.value < 0 || navIndex.value >= feeds.value.length) {
+    navIndex.value = 0;
+  }
+  const inst = cardInstances[navIndex.value];
+  if (inst && typeof inst.toggleComments === 'function') {
+    void inst.toggleComments();
+    return;
+  }
+  const el = cardEls[navIndex.value];
+  if (el) {
+    const commentBtn = el.querySelector('button[title="评论"], .action-btn[aria-label*="评论"], .btn-action-comment');
+    if (commentBtn instanceof HTMLElement) commentBtn.click();
+  }
+};
 const onRefreshFeeds = () => {
   if (!loading.value && !loadingMore.value) loadFeeds(true);
 };
@@ -1255,12 +1273,14 @@ async function initializeHome() {
 function bindGlobalListeners() {
   window.addEventListener('feed-nav-next', onNavNext);
   window.addEventListener('feed-nav-prev', onNavPrev);
+  window.addEventListener('feed-nav-comment', onNavComment);
   window.addEventListener('refresh-feeds', onRefreshFeeds);
 }
 
 function unbindGlobalListeners() {
   window.removeEventListener('feed-nav-next', onNavNext);
   window.removeEventListener('feed-nav-prev', onNavPrev);
+  window.removeEventListener('feed-nav-comment', onNavComment);
   window.removeEventListener('refresh-feeds', onRefreshFeeds);
 }
 

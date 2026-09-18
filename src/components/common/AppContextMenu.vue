@@ -39,7 +39,7 @@ import { showToast } from '../../utils/toast';
 import { getOriginalImageUrl } from '../../utils/image';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
 
-type ContextKind = 'page' | 'selection' | 'link' | 'image' | 'comment' | 'feed' | 'message';
+type ContextKind = 'page' | 'selection' | 'link' | 'image' | 'comment' | 'feed' | 'message' | 'chat-message';
 
 type ContextState = {
   x: number;
@@ -59,6 +59,8 @@ type ContextState = {
   messageUkey?: string;
   messageId?: string;
   messageIsNew?: boolean;
+  chatMessageText?: string;
+  chatMessageId?: string;
 };
 
 type MenuItem = {
@@ -198,6 +200,29 @@ function buildContext(event: MouseEvent): ContextState | null {
     };
   }
 
+  const chatMessage = element.closest<HTMLElement>('[data-context-kind="chat-message"]');
+  if (chatMessage && !element.closest('img, [data-context-image-url]')) {
+    const chatMessageText = chatMessage.dataset.contextMessageText || chatMessage.querySelector('.msg-text')?.textContent?.trim() || '';
+    return {
+      x: event.clientX,
+      y: event.clientY,
+      kind: 'chat-message',
+      selectedText: text,
+      linkUrl: '',
+      linkText: '',
+      imageUrl: '',
+      imageUrls: [],
+      feedId: '',
+      feedText: '',
+      feedUrl: '',
+      commentId: '',
+      commentUsername: '',
+      commentText: '',
+      chatMessageText,
+      chatMessageId: chatMessage.dataset.contextMessageId || '',
+    };
+  }
+
   if (text) {
     return {
       x: event.clientX,
@@ -272,6 +297,37 @@ function createItems(state: ContextState): MenuItem[] {
         disabled: !state.messageUkey && !state.messageIsNew,
       }),
     ];
+  }
+
+  if (state.kind === 'chat-message') {
+    const items: MenuItem[] = [];
+    if (state.selectedText) {
+      items.push(
+        item('copy-selection', '复制', 'far fa-copy', () => copyText(state.selectedText), {
+          shortcut: formatShortcut('Ctrl+C'),
+        })
+      );
+      if (state.chatMessageText && state.chatMessageText !== state.selectedText) {
+        items.push(
+          item('copy-chat-message-all', '复制全文', 'far fa-copy', () => copyText(state.chatMessageText || ''))
+        );
+      }
+      items.push(separator('chat-message-sep'));
+      items.push(
+        item('search-selection-app', '在酷安内搜索', 'fas fa-search', () => searchInApp(state.selectedText))
+      );
+      items.push(
+        item('search-selection-system', '在浏览器中搜索', 'fas fa-globe', () => searchInSystem(state.selectedText))
+      );
+    } else {
+      items.push(
+        item('copy-chat-message', '复制', 'far fa-copy', () => copyText(state.chatMessageText || ''), {
+          shortcut: formatShortcut('Ctrl+C'),
+          disabled: !state.chatMessageText,
+        })
+      );
+    }
+    return items;
   }
 
   if (state.kind === 'comment') {

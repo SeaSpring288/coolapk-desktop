@@ -385,6 +385,19 @@ fn set_close_to_tray(enabled: bool) {
 }
 
 #[tauri::command]
+fn set_window_theme(app: tauri::AppHandle, theme: Option<String>) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("main") {
+        let tauri_theme = match theme.as_deref() {
+            Some("dark") => Some(tauri::Theme::Dark),
+            Some("light") => Some(tauri::Theme::Light),
+            _ => None,
+        };
+        w.set_theme(tauri_theme).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_platform_info() -> serde_json::Value {
     serde_json::json!({
         "os": std::env::consts::OS,
@@ -902,6 +915,7 @@ pub fn run() {
             get_fans_user_list,
             get_platform_info,
             set_close_to_tray,
+            set_window_theme,
             set_startup_flags,
             send_desktop_notification,
             download_update,

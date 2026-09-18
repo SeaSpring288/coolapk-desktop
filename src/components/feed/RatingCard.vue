@@ -86,7 +86,7 @@
     />
 
     <!-- 评论区域折叠展示 -->
-    <div v-if="showComments" class="inline-comment-wrapper" @click.stop>
+    <div v-if="showComments" class="inline-comment-wrapper" @click.stop="touchActiveComments(feed.id)">
       <FeedCommentSection
         :feed-id="feed.id"
         :feed-uid="feed.uid || feed.userInfo?.uid"
@@ -176,6 +176,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { showToast } from '../../utils/toast';
 import { getErrorMessage } from '../../utils/errors';
 import { extractFeedImageInputs } from '../../utils/livePhoto';
+import { registerOpenComments, touchActiveComments } from '../../utils/activeCommentTracker';
 
 const settingsStore = useSettingsStore();
 const showDeviceInfo = computed(() => settingsStore.settings.showDeviceInfo);
@@ -436,13 +437,19 @@ function handleCollapseComments() {
   }
 }
 
+let activeCommentsUnregister: (() => void) | null = null;
+
 watch(
   showComments,
   (isOpen) => {
     if (isOpen) {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments);
       bindScrollListener();
       void nextTick(updateFloatingCollapse);
     } else {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = null;
       isCommentsFloatingVisible.value = false;
       unbindScrollListener();
     }
@@ -452,6 +459,8 @@ watch(
 
 onDeactivated(unbindScrollListener);
 onUnmounted(() => {
+  activeCommentsUnregister?.();
+  activeCommentsUnregister = null;
   unbindScrollListener();
 });
 
@@ -600,6 +609,7 @@ function formatRichText(text: string) {
   if (!text) return '';
   return renderCoolapkRichText(text);
 }
+defineExpose({ toggleComments, handleCollapseComments, showComments });
 </script>
 
 <style scoped>

@@ -130,17 +130,18 @@
                   <AppImage :src="getPicUrl(msg)" fit="contain" image-class="msg-pure-img" />
                 </div>
                 <!-- 包含文本或文本+图片混合消息 -->
-                <div v-else class="bubble-wrapper">
+                <div
+                  v-else
+                  class="bubble-wrapper"
+                  data-context-kind="chat-message"
+                  :data-context-message-text="getMessageText(msg)"
+                  :data-context-message-id="String(msg.id || '')"
+                >
                   <div class="bubble">
                     <div v-if="getPicUrl(msg)" class="msg-pic-container" @click.stop="openMessageImage(msg)">
                       <AppImage :src="getPicUrl(msg)" fit="contain" image-class="msg-img" />
                     </div>
                     <div v-if="getMessageText(msg)" class="msg-text" v-html="renderMessageContent(msg)" @click="handleAnchorClick"></div>
-                  </div>
-                  <div v-if="getMessageText(msg)" class="bubble-actions">
-                    <button class="bubble-action-btn" :title="copiedMsgId === msg.id ? '已复制' : '复制文本'" @click.stop="copyBubbleText(msg)">
-                      <i :class="copiedMsgId === msg.id ? 'fas fa-check copied-icon' : 'far fa-copy'"></i>
-                    </button>
                   </div>
                 </div>
                 <div class="msg-time">{{ formatMessageTime(getDateline(msg)) }}</div>
@@ -238,13 +239,32 @@
           </div>
         </div>
 
+        <!-- 待发送图片预览区 -->
+        <div v-if="pendingImages.length > 0" class="pending-images-bar">
+          <div v-for="(img, idx) in pendingImages" :key="img.id" class="pending-image-card">
+            <img :src="img.previewUrl" class="pending-image-thumb" alt="待发送图片" />
+            <button
+              type="button"
+              class="pending-image-remove-btn"
+              title="移除图片"
+              :disabled="sending || sendingImage"
+              @click.stop="removePendingImage(idx)"
+            >
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+
         <div
           ref="editorRef"
           class="message-rich-editor"
           contenteditable="true"
-          :data-placeholder="isInputFullscreen ? '在此全屏编辑消息内容，支持快捷粘贴或输入长篇文本（按 Esc 退出全屏）...' : '发消息...'"
+          :data-placeholder="isInputFullscreen ? '在此全屏编辑消息内容，支持快捷粘贴或输入长篇文本（按 Esc 退出全屏）...' : '发消息... (支持直接粘贴图片)'"
           @input="handleEditorInput"
           @keydown="handleKeydown"
+          @paste="handlePaste"
+          @drop="handleDrop"
+          @dragover.prevent
         ></div>
         
         <div class="input-bottom-bar">
@@ -256,7 +276,7 @@
               variant="primary" 
               size="sm"
               @click="sendMessage"
-              :disabled="!inputText.trim() || sending || sendingImage"
+              :disabled="(!inputText.trim() && pendingImages.length === 0) || sending || sendingImage"
               :loading="sending || sendingImage"
             >发送</AppButton>
           </div>
@@ -372,24 +392,6 @@ const draftSaved = ref(false);
 const sending = ref(false);
 const sendingImage = ref(false);
 const followingPartner = ref(false);
-const copiedMsgId = ref<number | string | null>(null);
-let copyTimer: number | null = null;
-
-async function copyBubbleText(msg: any) {
-  const text = getMessageText(msg);
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    copiedMsgId.value = msg.id;
-    showToast('已复制文本', 'success');
-    if (copyTimer) window.clearTimeout(copyTimer);
-    copyTimer = window.setTimeout(() => {
-      copiedMsgId.value = null;
-    }, 1500);
-  } catch {
-    showToast('复制失败', 'error');
-  }
-}
 
 const showEmojiPicker = ref(false);
 const emojiContainerRef = ref<HTMLElement | null>(null);
@@ -454,10 +456,172 @@ function syncTextToEditor(text: string) {
   nodes.forEach((n) => el.appendChild(n));
 }
 
+interface PendingImageItem {
+  id: string;
+  file: File;
+  previewUrl: string;
+}
+
+const pendingImages = ref<PendingImageItem[]>([]);
+
+function appendPendingImages(files: File[]) {
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const previewUrl = URL.createObjectURL(file);
+    pendingImages.value.push({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      file,
+      previewUrl
+    });
+  }
+}
+
+function removePendingImage(index: number, force = false) {
+  if (!force && (sending.value || sendingImage.value)) return;
+  const removed = pendingImages.value.splice(index, 1);
+  if (removed.length > 0 && removed[0].previewUrl) {
+    URL.revokeObjectURL(removed[0].previewUrl);
+  }
+}
+
+function clearPendingImages() {
+  for (const item of pendingImages.value) {
+    if (item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+  }
+  pendingImages.value = [];
+}
+
+async function convertSrcToFile(src: string): Promise<File | null> {
+  try {
+    if (src.startsWith('data:')) {
+      const parts = src.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+      const bstr = atob(parts[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      const ext = mime.split('/')[1] || 'png';
+      return new File([u8arr], `pasted_${Date.now()}.${ext}`, { type: mime });
+    }
+    const res = await fetch(src);
+    const blob = await res.blob();
+    const mime = blob.type || 'image/png';
+    const ext = mime.split('/')[1] || 'png';
+    return new File([blob], `pasted_${Date.now()}.${ext}`, { type: mime });
+  } catch (e) {
+    console.error('Failed to convert image src to file', e);
+    return null;
+  }
+}
+
+async function extractStrayImagesFromEditor() {
+  const el = editorRef.value;
+  if (!el) return;
+  const strayImgs = el.querySelectorAll<HTMLImageElement>('img:not([data-emoji])');
+  if (strayImgs.length === 0) return;
+
+  const files: File[] = [];
+  for (const img of Array.from(strayImgs)) {
+    const src = img.src;
+    img.remove();
+    if (src) {
+      const f = await convertSrcToFile(src);
+      if (f) files.push(f);
+    }
+  }
+  if (files.length > 0) {
+    appendPendingImages(files);
+  }
+  inputText.value = getEditorText(el);
+}
+
 function handleEditorInput() {
   const el = editorRef.value;
   if (!el) return;
+  void extractStrayImagesFromEditor();
   inputText.value = getEditorText(el);
+}
+
+function handlePaste(e: ClipboardEvent) {
+  const clipboardData = e.clipboardData;
+  if (!clipboardData) return;
+
+  const imageFiles: File[] = [];
+  if (clipboardData.items) {
+    for (let i = 0; i < clipboardData.items.length; i++) {
+      const item = clipboardData.items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+  }
+
+  if (imageFiles.length === 0 && clipboardData.files && clipboardData.files.length > 0) {
+    for (let i = 0; i < clipboardData.files.length; i++) {
+      const file = clipboardData.files[i];
+      if (file.type.startsWith('image/')) {
+        imageFiles.push(file);
+      }
+    }
+  }
+
+  if (imageFiles.length > 0) {
+    e.preventDefault();
+    appendPendingImages(imageFiles);
+    return;
+  }
+
+  const text = clipboardData.getData('text/plain');
+  if (text) {
+    e.preventDefault();
+    const el = editorRef.value;
+    if (!el) return;
+    const nodes = parseTextToEditorNodes(text);
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const frag = document.createDocumentFragment();
+      let lastNode: Node | null = null;
+      nodes.forEach((n) => {
+        lastNode = n;
+        frag.appendChild(n);
+      });
+      range.insertNode(frag);
+      if (lastNode) {
+        const newRange = document.createRange();
+        newRange.setStartAfter(lastNode);
+        newRange.setEndAfter(lastNode);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+      }
+    } else {
+      nodes.forEach((n) => el.appendChild(n));
+    }
+    inputText.value = getEditorText(el);
+  }
+}
+
+function handleDrop(e: DragEvent) {
+  if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+    const imgFiles: File[] = [];
+    for (let i = 0; i < e.dataTransfer.files.length; i++) {
+      const file = e.dataTransfer.files[i];
+      if (file.type.startsWith('image/')) {
+        imgFiles.push(file);
+      }
+    }
+    if (imgFiles.length > 0) {
+      e.preventDefault();
+      appendPendingImages(imgFiles);
+    }
+  }
 }
 
 // --- 栏目拖拽调节与全屏状态 ---
@@ -1099,6 +1263,7 @@ async function openTargetConversation(uid: string) {
 
 const selectSession = async (session: any) => {
   await saveCurrentDraft();
+  clearPendingImages();
   const requestSequence = ++historyRequestSequence;
   currentSession.value = session;
   isChatPositionReady.value = false;
@@ -1255,16 +1420,21 @@ onActivated(() => {
 });
 
 onDeactivated(() => {
+  clearPendingImages();
   unbindGlobalListeners();
   stopMessagePolling();
 });
 
 // --- 交互事件 ---
 const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Backspace' && !inputText.value && pendingImages.value.length > 0) {
+    removePendingImage(pendingImages.value.length - 1);
+    return;
+  }
   // Enter发送，Shift+Enter换行
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault(); // 阻止默认的回车换行
-    if (inputText.value.trim() && !sending.value) {
+    if ((inputText.value.trim() || pendingImages.value.length > 0) && !sending.value && !sendingImage.value) {
       sendMessage();
     }
   }
@@ -1334,16 +1504,22 @@ const handleImageSelected = async (e: Event) => {
   const file = target.files && target.files[0];
   if (!file) return;
 
+  try {
+    await sendImageFile(file);
+  } finally {
+    if (target) target.value = '';
+  }
+};
+
+const sendImageFile = async (file: File): Promise<boolean> => {
   if (!currentSession.value) {
     alert('请先选择一个会话再发送图片');
-    target.value = '';
-    return;
+    return false;
   }
   const targetUid = getSessionPartnerUid(currentSession.value);
   if (!targetUid) {
     alert('未识别到对方的合法酷安账号 UID');
-    target.value = '';
-    return;
+    return false;
   }
 
   sendingImage.value = true;
@@ -1351,7 +1527,8 @@ const handleImageSelected = async (e: Event) => {
     // File → ArrayBuffer → Uint8Array → 上传图床
     const bytes = new Uint8Array(await file.arrayBuffer());
     const contentType = file.type || 'image/jpeg';
-    const fileName = file.name || `image.${contentType.split('/')[1] || 'jpg'}`;
+    const ext = contentType.split('/')[1] || 'jpg';
+    const fileName = file.name || `image_${Date.now()}.${ext}`;
     const res = await CoolapkTauriAPI.uploadImage(bytes, fileName, contentType, 'message', String(targetUid));
     const uploaded: any = res?.data || res;
     let picPath = typeof uploaded === 'string' ? uploaded : (uploaded?.url || uploaded?.data || uploaded?.pic || '');
@@ -1399,19 +1576,27 @@ const handleImageSelected = async (e: Event) => {
     sess.dateline = nowTimestamp;
     sess.lastupdate = nowTimestamp;
 
+    // 将当前会话置顶
+    const idx = sessions.value.findIndex(s => (s.ukey && s.ukey === currentSession.value.ukey) || s.id === currentSession.value.id);
+    if (idx > 0) {
+      const [s] = sessions.value.splice(idx, 1);
+      sessions.value.unshift(s);
+    }
+
     if (ukey) {
       chatScrollMap.delete(String(ukey));
     }
     scrollToBottom();
+    return true;
   } catch (err: any) {
     console.error('发送图片失败', err);
     const errMsg = typeof err === 'string'
       ? err
       : (err?.message || JSON.stringify(err) || '图片发送失败，请确认网络与账号权限状态');
     showToast(errMsg, 'error');
+    return false;
   } finally {
     sendingImage.value = false;
-    if (target) target.value = '';
   }
 };
 
@@ -1423,64 +1608,89 @@ const openMessageImage = (msg: any) => {
   appStore.openImageViewer([url], 0);
 };
 
+const sendTextMessage = async (text: string): Promise<boolean> => {
+  if (!currentSession.value) return false;
+  const targetUid = getSessionPartnerUid(currentSession.value);
+  if (!targetUid) {
+    throw new Error('未识别到对方的合法酷安账号 UID');
+  }
+
+  // 调用后台原生 API 发送
+  await CoolapkTauriAPI.sendPrivateMessage(String(targetUid), text);
+
+  // 乐观更新 UI（与酷安 API 字段一致：uid=接收者，fromuid=发送者）
+  const nowTimestamp = Math.floor(Date.now() / 1000);
+  const newMsg = {
+    id: Date.now(),
+    uid: targetUid,
+    fromuid: currentUserUid.value,
+    message: text,
+    dateline: nowTimestamp
+  };
+
+  chatHistory.value.push(newMsg);
+
+  // 同步写入缓存
+  const ukey = currentSession.value.ukey || currentSession.value.id;
+  if (ukey) {
+    chatHistoryCache.set(ukey, [...chatHistory.value]);
+  }
+
+  // 更新左侧列表的摘要和时间（列表渲染优先读 message 字段）
+  const sess = currentSession.value;
+  if (markSessionRead(sess)) notificationStore.markViewed('message');
+  sess.message = text;
+  sess.lastMessage = text;
+  sess.summary = text;
+  sess.last_message = text;
+  sess.dateline = nowTimestamp;
+  sess.lastupdate = nowTimestamp;
+
+  // 将当前会话置顶
+  const idx = sessions.value.findIndex(s => (s.ukey && s.ukey === currentSession.value.ukey) || s.id === currentSession.value.id);
+  if (idx > 0) {
+    const [s] = sessions.value.splice(idx, 1);
+    sessions.value.unshift(s);
+  }
+
+  if (ukey) {
+    chatScrollMap.delete(String(ukey));
+  }
+  inputText.value = '';
+  if (editorRef.value) editorRef.value.innerHTML = '';
+  await clearMessageDraft(currentUserUid.value, getConversationKey(currentSession.value));
+  draftSaved.value = false;
+  scrollToBottom();
+  return true;
+};
+
 const sendMessage = async () => {
+  if (sending.value || sendingImage.value) return;
+  await extractStrayImagesFromEditor();
   const text = inputText.value.trim();
-  if (!text || !currentSession.value) return;
-  
+  if (!text && pendingImages.value.length === 0) return;
+  if (!currentSession.value) return;
+
   sending.value = true;
   try {
-    // 提取对方的真实 uid
-    const targetUid = getSessionPartnerUid(currentSession.value);
-    if (!targetUid) {
-      throw new Error('未识别到对方的合法酷安账号 UID');
+    // 1. 发送待发送列表中的所有图片
+    while (pendingImages.value.length > 0) {
+      const item = pendingImages.value[0];
+      const success = await sendImageFile(item.file);
+      if (success) {
+        removePendingImage(0, true);
+      } else {
+        return;
+      }
     }
-    
-    // 调用后台原生 API 发送
-    await CoolapkTauriAPI.sendPrivateMessage(String(targetUid), text);
-    
-    // 乐观更新 UI（与酷安 API 字段一致：uid=接收者，fromuid=发送者）
-    const nowTimestamp = Math.floor(Date.now() / 1000);
-    const newMsg = {
-      id: Date.now(),
-      uid: targetUid,
-      fromuid: currentUserUid.value,
-      message: text,
-      dateline: nowTimestamp
-    };
-    
-    chatHistory.value.push(newMsg);
 
-    // 同步写入缓存
-    const ukey = currentSession.value.ukey || currentSession.value.id;
-    if (ukey) {
-      chatHistoryCache.set(ukey, [...chatHistory.value]);
+    // 2. 发送文本消息
+    if (text) {
+      await sendTextMessage(text);
+    } else if (editorRef.value) {
+      inputText.value = '';
+      editorRef.value.innerHTML = '';
     }
-    
-    // 更新左侧列表的摘要和时间（列表渲染优先读 message 字段）
-    const sess = currentSession.value;
-    if (markSessionRead(sess)) notificationStore.markViewed('message');
-    sess.message = text;
-    sess.lastMessage = text;
-    sess.summary = text;
-    sess.last_message = text;
-    sess.dateline = nowTimestamp;
-    sess.lastupdate = nowTimestamp;
-    
-    // 将当前会话置顶
-    const idx = sessions.value.findIndex(s => (s.ukey && s.ukey === currentSession.value.ukey) || s.id === currentSession.value.id);
-    if (idx > 0) {
-      const [s] = sessions.value.splice(idx, 1);
-      sessions.value.unshift(s);
-    }
-    
-    if (ukey) {
-      chatScrollMap.delete(String(ukey));
-    }
-    inputText.value = '';
-    if (editorRef.value) editorRef.value.innerHTML = '';
-    await clearMessageDraft(currentUserUid.value, getConversationKey(currentSession.value));
-    draftSaved.value = false;
-    scrollToBottom();
   } catch (err: any) {
     console.error('发送消息失败', err);
     const errMsg = typeof err === 'string'
@@ -1512,6 +1722,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  clearPendingImages();
   unbindGlobalListeners();
   if (isDraggingSidebar) stopResizeSidebar();
   if (isDraggingInput) stopResizeInput();
@@ -2050,70 +2261,24 @@ onUnmounted(() => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   display: inline-block;
   transition: box-shadow 0.2s ease;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .bubble:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-/* 气泡悬浮快捷操作栏 */
-.bubble-actions {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%) scale(0.85);
-  opacity: 0;
-  pointer-events: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  background: var(--surface);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  border-radius: var(--radius-pill);
-  padding: 2px 4px;
-  z-index: 10;
+.msg-text {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
-.message-item:not(.is-self) .bubble-actions {
-  left: calc(100% + 8px);
-}
-
-.message-item.is-self .bubble-actions {
-  right: calc(100% + 8px);
-}
-
-.bubble-wrapper:hover .bubble-actions {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(-50%) scale(1);
-}
-
-.bubble-action-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 3px 5px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
-
-.bubble-action-btn:hover {
-  color: var(--brand-primary);
-  background: var(--surface-hover);
-}
-
-.bubble-action-btn:active {
-  transform: scale(0.9);
-}
-
-.copied-icon {
-  color: var(--brand-primary, #10b981);
+.bubble :deep(*) {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* 对方消息气泡（左侧，白色/Surface背景 + 左小尖角引出） */
@@ -2157,12 +2322,14 @@ onUnmounted(() => {
   color: var(--brand-primary);
   text-decoration: underline;
   word-break: break-all;
+  cursor: pointer;
 }
 
 .message-item.is-self .bubble :deep(a) {
   color: #ffffff !important;
   font-weight: bold;
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .bubble :deep(.coolapk-emoji) {
@@ -2171,6 +2338,8 @@ onUnmounted(() => {
   vertical-align: -5px;
   display: inline-block;
   margin: 0 1px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .msg-pic-only-card {
@@ -2488,8 +2657,56 @@ onUnmounted(() => {
   transform: scale(1.02);
 }
 
-.follow-action-btn:active {
-  transform: scale(0.95);
+.pending-images-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.pending-image-card {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  background: var(--surface-hover);
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.pending-image-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pending-image-remove-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.pending-image-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.9);
+  transform: scale(1.1);
 }
 
 .message-rich-editor {

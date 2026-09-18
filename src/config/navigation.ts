@@ -15,4 +15,5 @@ export const moreNavs: MoreNavItem[] = [
   { key: 'my_devices', path: '/my?section=my_devices', label: '我的设备', icon: 'fas fa-mobile-screen-button' },
   { key: 'my_albums', path: '/my?section=my_albums', label: '我的专辑', icon: 'fas fa-layer-group' },
   { key: 'my_votes', path: '/my?section=my_votes', label: '我的投票', icon: 'fas fa-square-poll-vertical' },
+  { key: 'my_recent', path: '/my?section=my_recent', label: '我的常去', icon: 'fas fa-star' },
 ];

@@ -3,7 +3,7 @@
     <FeedTabs
       :active-key="activeSection"
       :tabs="moreTabs"
-      :show-manage="false"
+      manager-mode="picker"
       @update:active-key="selectSection"
     />
 
@@ -21,6 +21,7 @@ import MyAlbumsPage from './MyAlbumsPage.vue';
 import MyCommentsPage from './MyCommentsPage.vue';
 import MyFeedsPage from './MyFeedsPage.vue';
 import MyLikesPage from './MyLikesPage.vue';
+import MyRecentPage from './MyRecentPage.vue';
 import MoreDataPage from './MoreDataPage.vue';
 import { moreNavs } from '../config/navigation';
 import { useSettingsStore } from '../stores/settings';
@@ -32,7 +33,10 @@ const settingsStore = useSettingsStore();
 
 const visibleMoreNavs = computed(() => {
   const visibility = settingsStore.settings.navVisibility;
-  return moreNavs.filter((item) => visibility?.[item.key as keyof typeof visibility] !== false);
+  const items = moreNavs.filter((item) => visibility?.[item.key as keyof typeof visibility] !== false);
+  if (!settingsStore.settings.myRecentPinned) return items;
+  const pinned = items.find((item) => item.key === 'my_recent');
+  return pinned ? [pinned, ...items.filter((item) => item.key !== 'my_recent')] : items;
 });
 
 const moreTabs = computed<ConfigPageTab[]>(() => visibleMoreNavs.value.map((item) => ({
@@ -57,6 +61,7 @@ const dataModeByKey: Record<string, string> = {
 };
 const componentByKey: Record<string, Component> = {
   my_likes: MyLikesPage,
+  my_recent: MyRecentPage,
   my_comments: MyCommentsPage,
   my_feeds: MyFeedsPage,
   my_albums: MyAlbumsPage,

@@ -66,6 +66,7 @@ export interface NavVisibilitySettings {
   my_likes: boolean;
   my_comments: boolean;
   my_feeds: boolean;
+  my_recent: boolean;
   followed_nodes: boolean;
   followed_topics: boolean;
   followed_collections: boolean;
@@ -111,6 +112,7 @@ export interface AppSettings {
   zoom: number;
   zoomManuallySet: boolean;
   sidebarCollapsed: boolean;
+  myRecentPinned: boolean;
   moreExpanded: boolean;
   reduceMotion: boolean;
   accentColor: AccentColor;

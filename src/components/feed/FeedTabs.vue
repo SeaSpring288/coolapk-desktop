@@ -16,7 +16,7 @@
     <button
       v-if="props.showManage"
       class="tab-manage-btn"
-      title="频道管理与排序"
+      :title="props.managerMode === 'picker' ? '查看全部栏目' : '频道管理与排序'"
       @click="showTabManager = true"
     >
       <i class="fas fa-bars"></i>
@@ -27,6 +27,7 @@
       :visible="showTabManager"
       :tabs="tabs"
       :active-key="activeKey"
+      :selection-only="props.managerMode === 'picker'"
       @close="showTabManager = false"
       @select-tab="$emit('update:activeKey', $event)"
       @updated="$emit('tabOrderUpdated')"
@@ -43,9 +44,11 @@ const props = withDefaults(defineProps<{
   activeKey: string;
   tabs: ConfigPageTab[];
   showManage?: boolean;
+  managerMode?: 'editable' | 'picker';
   wrap?: boolean;
 }>(), {
   showManage: true,
+  managerMode: 'editable',
   wrap: false,
 });
 

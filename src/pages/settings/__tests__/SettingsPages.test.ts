@@ -165,9 +165,10 @@ describe('设置页面交互', () => {
 
   it('快捷键页展示全部快捷键', () => {
     const { wrapper } = mountPage(ShortcutSettingsPage);
-    expect(wrapper.findAll('.setting-row')).toHaveLength(10);
+    expect(wrapper.findAll('.setting-row')).toHaveLength(11);
     expect(wrapper.text()).toContain('Ctrl+K');
     expect(wrapper.text()).toContain('Esc');
+    expect(wrapper.text()).toContain('C');
   });
 
   it('关于页展示版本信息并支持打开链接和检查更新', async () => {

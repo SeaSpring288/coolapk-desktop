@@ -58,6 +58,7 @@ describe('settings store', () => {
     expect(store.settings.navVisibility?.albums).toBe(true);
     expect(store.settings.navVisibility?.pictures).toBe(true);
     expect(store.settings.rememberWindowState).toBe(true);
+    expect(store.settings.myRecentPinned).toBe(false);
   });
 
   it('normalizes malformed values and preserves valid nested settings', () => {
@@ -74,6 +75,7 @@ describe('settings store', () => {
       suppressUnsupportedLivePhotoCodecPrompt: true,
       autoLoadOriginalImage: false,
       noImageMode: true,
+      myRecentPinned: true,
     });
     expect(normalized.theme).toBe('system');
     expect(normalized.fontSize).toBe(20);
@@ -88,6 +90,7 @@ describe('settings store', () => {
     expect(normalized.suppressUnsupportedLivePhotoCodecPrompt).toBe(true);
     expect(normalized.autoLoadOriginalImage).toBe(false);
     expect(normalized.noImageMode).toBe(true);
+    expect(normalized.myRecentPinned).toBe(true);
     expect(normalizeSettings({ rememberWindowState: false }).rememberWindowState).toBe(false);
   });
 

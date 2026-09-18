@@ -1,27 +1,39 @@
 <template>
   <div class="feed-comment-section">
     <div class="comment-toolbar">
-      <strong class="comment-title">评论 <span>{{ commentCount }}</span></strong>
-      <div class="comment-sort" aria-label="评论排序和筛选">
-        <button
-          v-for="option in commentSortOptions"
-          :key="option.value"
-          type="button"
-          :class="['comment-sort-button', { 'is-active': !authorOnly && commentSortMode === option.value }]"
-          :aria-pressed="!authorOnly && commentSortMode === option.value"
-          @click.stop="selectCommentSort(option.value)"
-        >
-          {{ option.label }}
-        </button>
-        <button
-          type="button"
-          :class="['comment-sort-button', { 'is-active': authorOnly }]"
-          :aria-pressed="authorOnly"
-          @click.stop="selectAuthorOnly"
-        >
-          楼主
-        </button>
+      <div class="comment-toolbar-left">
+        <strong class="comment-title">评论 <span>{{ commentCount }}</span></strong>
+        <div class="comment-sort" aria-label="评论排序和筛选">
+          <button
+            v-for="option in commentSortOptions"
+            :key="option.value"
+            type="button"
+            :class="['comment-sort-button', { 'is-active': !authorOnly && commentSortMode === option.value }]"
+            :aria-pressed="!authorOnly && commentSortMode === option.value"
+            @click.stop="selectCommentSort(option.value)"
+          >
+            {{ option.label }}
+          </button>
+          <button
+            type="button"
+            :class="['comment-sort-button', { 'is-active': authorOnly }]"
+            :aria-pressed="authorOnly"
+            @click.stop="selectAuthorOnly"
+          >
+            楼主
+          </button>
+        </div>
       </div>
+      <button
+        type="button"
+        class="comment-toolbar-collapse-btn"
+        title="收起评论 (Esc)"
+        aria-label="收起评论"
+        @click.stop="$emit('collapse')"
+      >
+        <i class="fa-solid fa-chevron-up"></i>
+        <span>收起评论</span>
+      </button>
     </div>
 
     <!-- 评论发表输入框组件 -->
@@ -1402,6 +1414,13 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     handleSend();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (replyTargetUser.value) {
+      clearReplyTarget();
+    } else {
+      emit('collapse');
+    }
   }
 }
 
@@ -1791,10 +1810,39 @@ async function handleSend() {
 .comment-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+}
+
+.comment-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.comment-toolbar-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  margin-left: auto;
+}
+
+.comment-toolbar-collapse-btn:hover {
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
 }
 
 .comment-title {

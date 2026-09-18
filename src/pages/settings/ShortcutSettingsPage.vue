@@ -29,7 +29,8 @@ const shortcutDefinitions = [
   { label: '页面前进后退', desc: '使用桌面浏览习惯切换页面历史', key: 'Alt+←/→' },
   { label: '下一条动态', desc: '快速浏览卡片', key: 'J' },
   { label: '上一条动态', desc: '快速浏览卡片', key: 'K' },
-  { label: '关闭浮层', desc: '关闭弹窗、抽屉或全屏图片', key: 'Esc' },
+  { label: '展开/收起评论', desc: '浏览卡片时展开或收起评论区', key: 'C' },
+  { label: '关闭浮层/收起评论', desc: '关闭弹窗、抽屉、全屏图片或收起评论区', key: 'Esc' },
 ];
 const shortcuts = computed(() => shortcutDefinitions.map((shortcut) => ({
   ...shortcut,

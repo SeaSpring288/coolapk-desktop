@@ -60,6 +60,7 @@ const defaultNavVisibility: NavVisibilitySettings = {
   my_likes: true,
   my_comments: true,
   my_feeds: true,
+  my_recent: true,
   followed_nodes: true,
   followed_topics: true,
   followed_collections: true,
@@ -104,6 +105,7 @@ const defaultSettings: AppSettings = {
   zoom: DEFAULT_ZOOM,
   zoomManuallySet: false,
   sidebarCollapsed: false,
+  myRecentPinned: false,
   moreExpanded: false,
   reduceMotion: false,
   accentColor: 'green',
@@ -218,6 +220,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   result.zoom = readNumber(source.zoom, result.zoom, MIN_ZOOM, MAX_ZOOM);
   result.zoomManuallySet = readBoolean(source.zoomManuallySet, result.zoomManuallySet);
   result.sidebarCollapsed = readBoolean(source.sidebarCollapsed, result.sidebarCollapsed);
+  result.myRecentPinned = readBoolean(source.myRecentPinned, readBoolean(source.sidebarMyCardsPinned, result.myRecentPinned));
   result.moreExpanded = readBoolean(source.moreExpanded, result.moreExpanded);
   result.reduceMotion = readBoolean(source.reduceMotion, result.reduceMotion);
   result.collapseLines = [0, 8, 12, 18].includes(Number(source.collapseLines)) ? Number(source.collapseLines) : result.collapseLines;
@@ -431,21 +434,42 @@ export const useSettingsStore = defineStore('settings', () => {
 
   void initializeSettings();
 
+  function syncWindowTheme(theme: 'light' | 'dark' | null) {
+    if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
+    if ((window as any).__TAURI_INTERNALS__?.metadata) {
+      import('@tauri-apps/api/window')
+        .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(theme))
+        .catch((err) => {
+          console.warn('通过 Tauri Window API 设置窗口主题失败:', err);
+        });
+    }
+    invoke('set_window_theme', { theme }).catch((err) => {
+      console.warn('通过 set_window_theme 设置窗口主题失败:', err);
+    });
+  }
+
   function applyTheme(theme: ThemeMode) {
     const root = document.documentElement;
+    let windowTheme: 'light' | 'dark' | null = null;
     if (theme === 'dark') {
       root.setAttribute('data-theme', 'dark');
+      windowTheme = 'dark';
     } else if (theme === 'light') {
       root.removeAttribute('data-theme');
+      windowTheme = 'light';
     } else {
       // Follow system
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const prefersDark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : false;
       if (prefersDark) {
         root.setAttribute('data-theme', 'dark');
       } else {
         root.removeAttribute('data-theme');
       }
+      windowTheme = null;
     }
+    syncWindowTheme(windowTheme);
   }
 
   const systemThemeMedia = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -536,11 +560,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function syncAlwaysOnTop(enabled: boolean) {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
-    import('@tauri-apps/api/window')
-      .then(({ getCurrentWindow }) => getCurrentWindow().setAlwaysOnTop(enabled))
-      .catch((err) => {
-        console.warn('设置窗口置顶失败:', err);
-      });
+    if ((window as any).__TAURI_INTERNALS__?.metadata) {
+      import('@tauri-apps/api/window')
+        .then(({ getCurrentWindow }) => getCurrentWindow().setAlwaysOnTop(enabled))
+        .catch((err) => {
+          console.warn('设置窗口置顶失败:', err);
+        });
+    }
   }
 
   function syncStartupFlags(s: AppSettings) {

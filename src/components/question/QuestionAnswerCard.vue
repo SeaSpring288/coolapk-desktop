@@ -131,7 +131,7 @@
       @open-forward-list="openForwardList"
     />
 
-    <div v-if="showComments" class="answer-comments-wrapper" @click.stop>
+    <div v-if="showComments" class="answer-comments-wrapper" @click.stop="touchActiveComments(answer.id)">
       <FeedCommentSection
         :feed-id="answer.id"
         :feed-uid="authorUid"
@@ -143,6 +143,7 @@
         :has-more-comments="hasMoreComments"
         :loading-more-comments="commentsLoadingMore"
         :load-more-error="commentsLoadMoreError"
+        @collapse="handleCollapseComments"
         :normalize-img="normalizeImg"
         :format-rich-text="formatRichText"
         @delete-comment="removeComment"
@@ -196,6 +197,7 @@ import { useSettingsStore } from '../../stores/settings';
 import { useAppStore } from '../../stores/app';
 import { getErrorMessage } from '../../utils/errors';
 import { extractFeedImageInputs, type FeedImageInput } from '../../utils/livePhoto';
+import { registerOpenComments, touchActiveComments } from '../../utils/activeCommentTracker';
 import { normalizeCoolapkNativeRoute, normalizeCoolapkPageRoute, normalizeCoolapkRoute } from '../../utils/coolapkRoute';
 import { renderCoolapkRichText } from '../../utils/richText';
 import { preloadUserProfile } from '../../utils/userProfilePreloader';
@@ -773,6 +775,26 @@ function toggleComments() {
   void openComments();
 }
 
+function handleCollapseComments() {
+  showComments.value = false;
+}
+
+let activeCommentsUnregister: (() => void) | null = null;
+
+watch(
+  showComments,
+  (isOpen) => {
+    if (isOpen) {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = registerOpenComments(props.answer.id, handleCollapseComments);
+    } else {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = null;
+    }
+  },
+  { immediate: true }
+);
+
 function selectReplySort(mode: CommentSortMode) {
   commentsSortMode.value = mode;
   commentsAuthorOnly.value = false;
@@ -814,6 +836,7 @@ watch(() => String(props.answer.id || ''), () => {
 onUnmounted(() => {
   commentsRequestVersion += 1;
 });
+defineExpose({ toggleComments, handleCollapseComments, showComments });
 </script>
 
 <style scoped>

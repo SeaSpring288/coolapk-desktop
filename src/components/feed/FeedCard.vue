@@ -149,7 +149,7 @@
       @open-forward-list="openForwardList"
     />
 
-    <div v-if="showComments" class="inline-comment-wrapper" @click.stop>
+    <div v-if="showComments" class="inline-comment-wrapper" @click.stop="touchActiveComments(feed.id)">
       <FeedCommentSection
         :feed-id="feed.id"
         :feed-uid="authorUid"
@@ -163,6 +163,7 @@
         :load-more-error="commentsLoadMoreError"
         :normalize-img="normalizeImg"
         :format-rich-text="formatRichText"
+        @collapse="handleCollapseComments"
         @delete-comment="removeComment"
         @retry-comments="openComments(true)"
         @load-more-comments="loadMoreComments"
@@ -284,6 +285,7 @@ import {
 import { useAppStore } from '../../stores/app';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
+import { registerOpenComments, touchActiveComments } from '../../utils/activeCommentTracker';
 import { showToast } from '../../utils/toast';
 import { requestConfirmation } from '../../utils/confirm';
 import { getErrorMessage } from '../../utils/errors';
@@ -1111,13 +1113,21 @@ watch(
   { immediate: true }
 );
 
+let activeCommentsUnregister: (() => void) | null = null;
+
 watch(
   showComments,
   (isOpen) => {
-    if (isOpen && !props.detailMode) {
-      bindScrollListener();
-      void nextTick(updateFloatingCollapse);
+    if (isOpen) {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = registerOpenComments(props.feed.id, handleCollapseComments);
+      if (!props.detailMode) {
+        bindScrollListener();
+        void nextTick(updateFloatingCollapse);
+      }
     } else {
+      activeCommentsUnregister?.();
+      activeCommentsUnregister = null;
       isCommentsFloatingVisible.value = false;
       unbindScrollListener();
     }
@@ -1157,6 +1167,8 @@ onActivated(() => {
 });
 
 onUnmounted(() => {
+  activeCommentsUnregister?.();
+  activeCommentsUnregister = null;
   isCommentsFloatingVisible.value = false;
   unbindScrollListener();
 });
@@ -1258,6 +1270,12 @@ function formatRichText(text: string) {
   if (!text) return '';
   return renderCoolapkRichText(text);
 }
+
+defineExpose({
+  toggleComments,
+  handleCollapseComments,
+  showComments,
+});
 </script>
 
 <style scoped>

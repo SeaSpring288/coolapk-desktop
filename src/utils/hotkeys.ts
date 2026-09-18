@@ -1,6 +1,7 @@
 import { useRouter } from 'vue-router';
 import { useAppStore } from '../stores/app';
 import { useSettingsStore } from '../stores/settings';
+import { hasActiveComments, collapseActiveComments } from './activeCommentTracker';
 
 /**
  * 全局快捷键注册：
@@ -95,6 +96,17 @@ export function registerGlobalHotkeys() {
       return;
     }
 
+    if (e.key === 'Escape' && !e.defaultPrevented) {
+      const appStore = useAppStore();
+      if (appStore.isSearchOpen || appStore.isPublishOpen || appStore.activeImageViewer) return;
+      if (typeof document !== 'undefined' && document.querySelector('.app-dialog-container, .viewer-container, .login-modal-content')) return;
+      if (hasActiveComments()) {
+        e.preventDefault();
+        collapseActiveComments();
+        return;
+      }
+    }
+
     if (isTypingTarget(e)) return;
     const key = e.key.toLowerCase();
     if (key === 'j') {
@@ -103,6 +115,9 @@ export function registerGlobalHotkeys() {
     } else if (key === 'k') {
       e.preventDefault();
       window.dispatchEvent(new Event('feed-nav-prev'));
+    } else if (key === 'c') {
+      e.preventDefault();
+      window.dispatchEvent(new Event('feed-nav-comment'));
     }
   }
 

@@ -8,9 +8,9 @@
             <i class="fas fa-th-large"></i>
           </div>
           <div>
-            <h3 class="header-title">频道管理</h3>
+            <h3 class="header-title">{{ selectionOnly ? '我的栏目' : '频道管理' }}</h3>
             <p class="header-desc">
-              {{ isEditing ? '按住卡片直接拖拽排序，点击 × 移出频道' : '点击九宫格卡片快速直达频道' }}
+              {{ selectionOnly ? '点击栏目快速切换，不会改变首页栏目设置' : (isEditing ? '按住卡片直接拖拽排序，点击 × 移出频道' : '点击九宫格卡片快速直达频道') }}
             </p>
           </div>
         </div>
@@ -26,10 +26,11 @@
         <div class="channel-section">
           <div class="section-header">
             <div class="section-title-wrap">
-              <span class="section-title">我的频道</span>
+              <span class="section-title">{{ selectionOnly ? '全部栏目' : '我的频道' }}</span>
               <span class="channel-badge">{{ activeChannels.length }} 个</span>
             </div>
             <button
+              v-if="!selectionOnly"
               :class="['edit-toggle-btn', { 'is-active': isEditing }]"
               @click="toggleEditMode"
             >
@@ -91,7 +92,7 @@
         </div>
 
         <!-- 分组 2：更多推荐频道（如果有隐藏/未添加的频道） -->
-        <div v-if="hiddenChannels.length > 0" class="channel-section hidden-section">
+        <div v-if="!selectionOnly && hiddenChannels.length > 0" class="channel-section hidden-section">
           <div class="section-header">
             <div class="section-title-wrap">
               <span class="section-title">点击添加更多频道</span>
@@ -116,7 +117,7 @@
       </div>
 
       <!-- 弹窗底栏 -->
-      <div class="dialog-footer">
+      <div v-if="!selectionOnly" class="dialog-footer">
         <button class="footer-btn secondary-btn" @click="resetToDefault">
           <i class="fas fa-undo"></i>
           <span>恢复默认</span>
@@ -154,6 +155,7 @@ const props = defineProps<{
   visible: boolean;
   tabs: ConfigPageTab[];
   activeKey?: string;
+  selectionOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -216,6 +218,11 @@ const floatingStyle = computed(() => {
 
 function initChannels() {
   const all = [...props.tabs];
+  if (props.selectionOnly) {
+    activeChannels.value = all;
+    hiddenChannels.value = [];
+    return;
+  }
   const savedOrder = settingsStore.settings.homeTabOrder || [];
 
   if (!savedOrder.length) {
