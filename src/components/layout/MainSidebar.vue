@@ -82,6 +82,22 @@
       <div class="nav-divider"></div>
 
       <div class="nav-group">
+        <router-link
+          to="/downloads"
+          class="nav-item"
+          active-class="is-active"
+          :title="getNavTitle({ key: 'downloads', label: '下载' })"
+          @click="triggerSidebarTransition()"
+        >
+          <i class="fas fa-download nav-icon"></i>
+          <span v-if="!isCollapsed" class="nav-label">下载</span>
+          <span
+            v-if="getNavBadge('downloads') > 0"
+            :class="['nav-badge', { 'is-wide': getNavBadge('downloads') > 9 }]"
+          >
+            {{ getNavBadge('downloads') > 99 ? '99+' : getNavBadge('downloads') }}
+          </span>
+        </router-link>
         <router-link to="/settings" class="nav-item" active-class="is-active" title="设置" @click="triggerSidebarTransition()">
           <i class="fas fa-cog nav-icon"></i>
           <span v-if="!isCollapsed" class="nav-label">设置</span>
@@ -116,6 +132,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useSettingsStore } from '../../stores/settings';
 import { useAuthStore } from '../../stores/auth';
 import { useNotificationStore } from '../../stores/notifications';
+import { useDownloadStore } from '../../stores/downloads';
 import { APP_VERSION } from '../../constants/version';
 import { triggerSidebarTransition } from '../../utils/routeTransition';
 import { openFeedbackMessage } from '../../utils/feedback';
@@ -125,6 +142,7 @@ const router = useRouter();
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
+const downloadStore = useDownloadStore();
 const appVersion = APP_VERSION;
 
 function handleFeedback() {
@@ -240,6 +258,7 @@ const myVisible = computed(() => settingsStore.settings.navVisibility?.my !== fa
 function getNavBadge(key: string): number {
   if (key === 'notifications') return notificationStore.notificationCount;
   if (key === 'messages') return notificationStore.messageCount;
+  if (key === 'downloads') return downloadStore.activeCount;
   return 0;
 }
 

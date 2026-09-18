@@ -68,9 +68,19 @@ jobs:
 
   # ─── Rust 测试 ───
   rust-tests:
-    name: Rust 测试
-    runs-on: ubuntu-22.04
+    name: Rust 测试 (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-22.04
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -83,6 +93,7 @@ jobs:
           workspaces: src-tauri
 
       - name: 安装 Linux 依赖
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev

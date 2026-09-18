@@ -591,12 +591,12 @@ TS 方法：`followCollection(id)` / `unfollowCollection(id)` / `likeCollection(
 | `GET /v6/apk/discovererList` | ✅ 可用 | 未接入 | id（包名）, page |
 | `GET /v6/apk/recommendList` | ✅ 可用 | 未接入 | apkType, title, subTitle, page |
 | `GET /v6/apk/qr` | ✅ 可用（空数据） | 未接入 | id（包名） |
-| `GET /v6/apk/url` | ✅ 可用（空数据） | 未接入 | id（包名） |
-| `GET /v6/apk/downloadVersionList` | ✅ 可用 | 未接入 | id（包名） |
+| `GET /v6/apk/url` | ✅ 可用（空数据） | 下载中心 | id（包名） |
+| `POST /v6/apk/downloadVerify` | ✅ 可用 | 下载中心 | apkName, requestUrl, downloadUrl |
+| `GET /v6/apk/downloadVersionList` | ✅ 可用 | 应用版本历史 | id（包名） |
 | `GET /v6/apk/search?searchType=tag` | ✅ 可用 | 未接入 | tag, apkType, rankType, page |
 | `GET /v6/apk/search?searchType=developer` | ✅ 可用（空数据） | 未接入 | developer, page |
 | `GET /v6/apk/giftList` | ✅ 可用 | 未接入 | apkId（非必须）, page |
-| `POST /v6/apk/checkUpdate` | 🚫 GET 可用 | 未接入 | pkgs（包名列表，multipart） |
 
 ## 专辑（应用集）
 

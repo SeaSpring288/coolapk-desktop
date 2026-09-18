@@ -1097,6 +1097,27 @@ impl CoolapkClient {
         self.user_cookie.read().ok().and_then(|g| g.clone())
     }
 
+    /// 为酷安下载请求补齐官方客户端使用的公共请求头。
+    pub fn apply_download_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, String> {
+        let request = request
+            .header("X-App-Token", self.get_token()?)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("X-Sdk-Int", "35")
+            .header("X-Sdk-Locale", "zh-CN")
+            .header("X-App-Mode", "universal")
+            .header("X-App-Channel", "coolapk")
+            .header("X-App-Id", "com.coolapk.market")
+            .header("X-App-Version", "16.2.0")
+            .header("X-App-Code", "2604201")
+            .header("X-Api-Version", "16")
+            .header("X-App-Supported", "2604201")
+            .header("X-Dark-Mode", "0");
+        self.apply_device_profile(request)
+    }
+
     /// 账户库文件路径（与 session_cookie.txt 同目录，统一 JSON 存储）
     fn accounts_file_path(&self) -> Option<std::path::PathBuf> {
         let path = self.cookie_file.read().ok()?.clone()?;
@@ -5637,20 +5658,33 @@ impl CoolapkClient {
         )
     }
 
+    /// 下载校验接口：对应 APK 的 POST /v6/apk/downloadVerify。
+    /// 官方下载器在拿到最终响应地址后调用该接口，用于识别被劫持的下载页面。
+    pub async fn verify_apk_download(
+        &self,
+        apk_name: &str,
+        request_url: &str,
+        download_url: &str,
+    ) -> Result<Value, String> {
+        wrap_api_data(
+            self.api_post(
+                "/v6/apk/downloadVerify",
+                &[],
+                &[
+                    ("apkName", apk_name.to_string()),
+                    ("requestUrl", request_url.to_string()),
+                    ("downloadUrl", download_url.to_string()),
+                ],
+            )
+            .await?,
+        )
+    }
+
     /// 应用二维码
     /// 数据来源: GET /v6/apk/qr?id={packageName}
     pub async fn get_apk_qr(&self, package_name: &str) -> Result<Value, String> {
         wrap_api_data(
             self.api_get("/v6/apk/qr", &[("id", package_name.to_string())])
-                .await?,
-        )
-    }
-
-    /// 应用更新检查
-    /// 数据来源: GET /v6/apk/checkUpdate?pkgs={packageNames}
-    pub async fn check_update(&self, pkgs: &str) -> Result<Value, String> {
-        wrap_api_data(
-            self.api_get("/v6/apk/checkUpdate", &[("pkgs", pkgs.to_string())])
                 .await?,
         )
     }
@@ -7384,7 +7418,7 @@ impl CoolapkClient {
         )?;
         let apk_id = detail
             .get("data")
-            .and_then(|d| d.get("id"))
+            .and_then(|d| d.get("aid").or_else(|| d.get("id")))
             .map(value_to_string)
             .unwrap_or_default();
         if apk_id.is_empty() {

@@ -11,18 +11,25 @@
             {{ displayDownloadPath }}（用于导出数据等文件保存；留空则使用系统下载目录）
           </span>
         </div>
-        <AppButton variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
+        <div class="row-actions">
+          <AppButton variant="secondary" size="sm" @click="chooseDownloadDir">更改目录</AppButton>
+          <AppButton
+            v-if="settingsStore.settings.downloadPath"
+            variant="ghost"
+            size="sm"
+            @click="resetDownloadDir"
+          >恢复默认</AppButton>
+        </div>
       </div>
 
       <div class="setting-row">
         <div class="row-info">
           <span class="row-label">同时下载并发任务数</span>
-          <span class="row-sub">为未来的下载管理器预留，当前版本暂未启用下载任务</span>
+          <span class="row-sub">控制应用和游戏安装包同时下载的任务数量</span>
         </div>
         <select
           v-model.number="settingsStore.settings.maxConcurrentDownloads"
           class="select-control"
-          disabled
         >
           <option v-for="n in [1, 2, 3, 4, 5, 6, 8]" :key="n" :value="n">{{ n }} 任务</option>
         </select>
@@ -209,9 +216,10 @@ const cacheImageBytes = ref(0);
 const cacheUpdateBytes = ref(0);
 const cacheDirectory = ref('');
 const cacheError = ref('');
+const systemDownloadPath = ref('');
 
 const displayDownloadPath = computed(
-  () => settingsStore.settings.downloadPath || '（系统下载目录）'
+  () => settingsStore.settings.downloadPath || systemDownloadPath.value || '（系统下载目录）'
 );
 
 const cacheDirectoryText = computed(
@@ -313,6 +321,18 @@ async function chooseDownloadDir() {
   }
 }
 
+function resetDownloadDir() {
+  settingsStore.settings.downloadPath = '';
+}
+
+async function refreshSystemDownloadPath() {
+  try {
+    systemDownloadPath.value = await CoolapkTauriAPI.getDownloadDirectory();
+  } catch {
+    systemDownloadPath.value = '';
+  }
+}
+
 function dateStamp() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -385,6 +405,7 @@ async function exportFavorites() {
 
 onMounted(() => {
   void refreshCacheInfo();
+  void refreshSystemDownloadPath();
 });
 </script>
 

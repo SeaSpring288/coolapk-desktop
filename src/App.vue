@@ -133,6 +133,7 @@ import AppContextMenu from './components/common/AppContextMenu.vue';
 import AppDialog from './components/common/AppDialog.vue';
 import { useAuthStore } from './stores/auth';
 import { useSettingsStore } from './stores/settings';
+import { useDownloadStore } from './stores/downloads';
 import { APP_VERSION, checkLatestRelease, isNewerVersion, normalizeVersion, type UpdateInfo } from './utils/updateChecker';
 import { renderReleaseMarkdown } from './utils/markdown';
 import { handleAnchorClick } from './utils/anchorClick';
@@ -163,6 +164,7 @@ type DownloadProgress = { downloaded: number; total: number; percent: number };
 
 const authStore = useAuthStore();
 const settingsStore = useSettingsStore();
+const downloadStore = useDownloadStore();
 const updateInfo = ref<UpdateInfo | null>(null);
 const downloadNotice = ref<DownloadNotice | null>(null);
 const readyInfo = ref<ReadyInfo | null>(null);
@@ -384,6 +386,7 @@ async function restorePendingUpdate(): Promise<boolean> {
 }
 
 onMounted(() => {
+  void downloadStore.initialize();
   authStore.initAuth();
   window.addEventListener('resize', settingsStore.refreshAutoZoom);
   unregisterHotkeys = registerGlobalHotkeys();

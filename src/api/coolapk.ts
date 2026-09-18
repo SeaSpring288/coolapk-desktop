@@ -1112,8 +1112,60 @@ export class CoolapkTauriAPI {
     return await invokeNative('get_apk_qr', { packageName });
   }
 
-  static async checkUpdate(pkgs: string) {
-    return await invokeNative('check_update', { pkgs });
+  static async startApkDownload(options: {
+    taskId: string;
+    packageName: string;
+    apkName?: string;
+    apkId?: string | number;
+    versionCode?: string | number;
+    fileName: string;
+    dir?: string;
+    targetPath?: string;
+    extraAnalysisData?: string;
+    proxyUrl?: string;
+  }) {
+    return await invoke<{
+      status: string;
+      downloaded?: number;
+      total?: number;
+      path?: string;
+      partialPath?: string;
+    }>('start_apk_download', {
+      taskId: options.taskId,
+      packageName: options.packageName,
+      apkName: options.apkName || options.packageName,
+      apkId: String(options.apkId ?? ''),
+      versionCode: String(options.versionCode ?? ''),
+      fileName: options.fileName,
+      dir: options.dir || '',
+      targetPath: options.targetPath || '',
+      extraAnalysisData: options.extraAnalysisData || '',
+      proxyUrl: options.proxyUrl || '',
+    });
+  }
+
+  static async pauseApkDownload(taskId: string) {
+    return await invoke<void>('pause_apk_download', { taskId });
+  }
+
+  static async cancelApkDownload(taskId: string) {
+    return await invoke<void>('cancel_apk_download', { taskId });
+  }
+
+  static async deleteApkDownloadFile(targetPath?: string, partialPath?: string, dir?: string) {
+    return await invoke<void>('delete_apk_download_file', {
+      targetPath: targetPath || '',
+      partialPath: partialPath || '',
+      dir: dir || '',
+    });
+  }
+
+  static async openApkDownloadDirectory(dir?: string) {
+    return await invoke<void>('open_apk_download_directory', { dir: dir || '' });
+  }
+
+  static async getDownloadDirectory(dir?: string) {
+    return await invoke<string>('get_download_directory', { dir: dir || '' });
   }
 
   // 10. 离线/在线发布动态

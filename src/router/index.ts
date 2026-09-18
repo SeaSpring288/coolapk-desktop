@@ -6,6 +6,7 @@ import MessagesPage from '../pages/MessagesPage.vue';
 import DiscoverPage from '../pages/DiscoverPage.vue';
 import AppsPage from '../pages/AppsPage.vue';
 import GamesPage from '../pages/GamesPage.vue';
+import DownloadsPage from '../pages/DownloadsPage.vue';
 import FavoritesPage from '../pages/FavoritesPage.vue';
 import MyLikesPage from '../pages/MyLikesPage.vue';
 import MoreWorkspacePage from '../pages/MoreWorkspacePage.vue';
@@ -73,6 +74,7 @@ const routes = [
   { path: '/discover', name: 'Discover', component: DiscoverPage },
   { path: '/apps', name: 'Apps', component: AppsPage },
   { path: '/games', name: 'Games', component: GamesPage },
+  { path: '/downloads', name: 'Downloads', component: DownloadsPage },
   { path: '/topics', name: 'Topics', component: TopicsHubPage },
   { path: '/favorites', name: 'Favorites', component: FavoritesPage },
   { path: '/my-likes', name: 'MyLikes', component: MyLikesPage },

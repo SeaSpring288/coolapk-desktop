@@ -1,15 +1,17 @@
 use crate::coolapk::client::{CoolapkClient, DeviceProfile};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use crate::download_manager::{DownloadControl, DownloadManager};
+use base64::{Engine as _, engine::general_purpose::{STANDARD as BASE64, STANDARD_NO_PAD as BASE64_NO_PAD}};
 use md5::{Digest, Md5};
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime};
-use tauri::{Manager, State};
+use std::time::{Duration, Instant, SystemTime};
+use tauri::{Emitter, Manager, State};
 
 pub struct AppState {
     pub client: CoolapkClient,
+    pub downloads: DownloadManager,
 }
 
 static IMAGE_SAVE_LOCK: Mutex<()> = Mutex::new(());
@@ -1412,14 +1414,558 @@ pub async fn get_apk_url(
     state.client.get_apk_url(&package_name).await
 }
 
-#[tauri::command]
-pub async fn get_apk_qr(state: State<'_, AppState>, package_name: String) -> Result<Value, String> {
-    state.client.get_apk_qr(&package_name).await
+const APK_DOWNLOAD_MAX_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+fn download_value_to_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn download_object_string(value: Option<&Value>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| value.and_then(|item| item.get(*key)).and_then(download_value_to_string))
+}
+
+fn decode_extra_analysis_data(value: &str) -> Option<Value> {
+    let encoded = value.split('~').next()?.trim();
+    if encoded.is_empty() {
+        return None;
+    }
+    let bytes = BASE64
+        .decode(encoded)
+        .or_else(|_| BASE64_NO_PAD.decode(encoded))
+        .ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn build_coolapk_download_url(package_name: &str, apk_id: &str, version_code: &str) -> Result<reqwest::Url, String> {
+    let package_name = package_name.trim();
+    let apk_id = apk_id.trim();
+    let version_code = version_code.trim();
+    if package_name.is_empty() || apk_id.is_empty() || version_code.is_empty() {
+        return Err("应用下载参数不完整，缺少包名、应用 ID 或版本号".to_string());
+    }
+    let mut url = reqwest::Url::parse("https://api.coolapk.com/v6/apk/download")
+        .map_err(|error| format!("构造酷安下载地址失败：{error}"))?;
+    url.query_pairs_mut()
+        .append_pair("pn", package_name)
+        .append_pair("aid", apk_id)
+        .append_pair("vc", version_code)
+        .append_pair("extra", "");
+    Ok(url)
+}
+
+fn is_coolapk_download_host(host: &str) -> bool {
+    matches!(host.to_ascii_lowercase().as_str(), "api.coolapk.com" | "api-dev.coolapk.com")
+}
+
+fn is_windows_reserved_file_name(file_name: &str) -> bool {
+    if !cfg!(windows) {
+        return false;
+    }
+    let base_name = file_name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(|character| character == ' ' || character == '.')
+        .to_ascii_uppercase();
+    if matches!(base_name.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    let bytes = base_name.as_bytes();
+    (bytes.len() == 4 && (bytes.starts_with(b"COM") || bytes.starts_with(b"LPT")))
+        && (b'1'..=b'9').contains(&bytes[3])
+}
+
+fn sanitize_apk_file_name(file_name: &str) -> Result<String, String> {
+    let mut safe_name = file_name
+        .chars()
+        .take(160)
+        .map(|character| {
+            if character.is_control() || matches!(character, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if safe_name.is_empty() || safe_name == "." || safe_name == ".." || safe_name.contains("..") {
+        return Err("下载文件名不合法".to_string());
+    }
+    let lower_name = safe_name.to_ascii_lowercase();
+    if ![".apk", ".xapk", ".apks"].iter().any(|suffix| lower_name.ends_with(suffix)) {
+        safe_name.push_str(".apk");
+    }
+    if is_windows_reserved_file_name(&safe_name) {
+        safe_name.insert(0, '_');
+    }
+    Ok(safe_name)
+}
+
+fn constrain_windows_download_file_name(target_dir: &Path, file_name: String) -> Result<String, String> {
+    if !cfg!(windows) {
+        return Ok(file_name);
+    }
+    const MAX_WINDOWS_PATH_UNITS: usize = 240;
+    let path = Path::new(&file_name);
+    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("apk");
+    let suffix = format!(".{extension}");
+    let stem = path.file_stem().and_then(|value| value.to_str()).unwrap_or("coolapk");
+    let directory_units = target_dir.as_os_str().to_string_lossy().encode_utf16().count();
+    let reserved_units = directory_units + 1 + suffix.encode_utf16().count() + ".part".encode_utf16().count();
+    let max_stem_units = MAX_WINDOWS_PATH_UNITS.saturating_sub(reserved_units);
+    if max_stem_units == 0 {
+        return Err("下载目录路径过长，请选择更短的目录".to_string());
+    }
+    let mut shortened_stem = String::new();
+    let mut used_units = 0;
+    for character in stem.chars() {
+        let units = character.len_utf16();
+        if used_units + units > max_stem_units {
+            break;
+        }
+        shortened_stem.push(character);
+        used_units += units;
+    }
+    if shortened_stem.is_empty() {
+        return Err("下载文件名过长且无法缩短".to_string());
+    }
+    Ok(format!("{shortened_stem}{suffix}"))
+}
+
+fn partial_download_path(target: &Path) -> Result<PathBuf, String> {
+    let file_name = target.file_name().ok_or_else(|| "下载文件路径不合法".to_string())?;
+    let mut partial_name = file_name.to_os_string();
+    partial_name.push(".part");
+    Ok(target.with_file_name(partial_name))
+}
+
+fn paths_equivalent(left: &Path, right: &Path) -> bool {
+    if cfg!(windows) {
+        left.to_string_lossy().eq_ignore_ascii_case(&right.to_string_lossy())
+    } else {
+        left == right
+    }
+}
+
+fn path_is_direct_child_of(path: &Path, target_dir: &Path) -> Result<bool, String> {
+    let parent = path.parent().ok_or_else(|| "下载文件路径不合法".to_string())?;
+    let canonical_dir = std::fs::canonicalize(target_dir).map_err(|_| "下载目录不存在或无法访问".to_string())?;
+    let canonical_parent = std::fs::canonicalize(parent).map_err(|_| "下载文件所在目录不存在或无法访问".to_string())?;
+    Ok(paths_equivalent(&canonical_dir, &canonical_parent))
+}
+
+fn reject_download_symlink(path: &Path) -> Result<(), String> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            return Err("拒绝操作符号链接下载文件".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn empty_download_verification(value: &Value) -> bool {
+    match value.get("data") {
+        None | Some(Value::Null) => true,
+        Some(Value::String(data)) => data.trim().is_empty(),
+        Some(_) => false,
+    }
+}
+
+fn download_event_payload(
+    task_id: &str,
+    status: &str,
+    downloaded: u64,
+    total: u64,
+    speed: u64,
+    target_path: &std::path::Path,
+    partial_path: &std::path::Path,
+    error: Option<&str>,
+) -> Value {
+    let mut payload = json!({
+        "taskId": task_id,
+        "status": status,
+        "downloaded": downloaded,
+        "total": total,
+        "speed": speed,
+        "path": target_path.to_string_lossy(),
+        "partialPath": partial_path.to_string_lossy(),
+    });
+    if let Some(error) = error {
+        payload["error"] = json!(error);
+    }
+    payload
+}
+
+fn download_control(control: &tokio::sync::watch::Receiver<DownloadControl>) -> DownloadControl {
+    *control.borrow()
+}
+
+async fn run_apk_download(
+    app: &tauri::AppHandle,
+    client: &CoolapkClient,
+    control: &mut tokio::sync::watch::Receiver<DownloadControl>,
+    task_id: &str,
+    package_name: &str,
+    apk_name: &str,
+    apk_id: Option<&str>,
+    version_code: Option<&str>,
+    file_name: &str,
+    dir: Option<&str>,
+    target_path: Option<&str>,
+    extra_analysis_data: Option<&str>,
+    proxy_url: Option<&str>,
+) -> Result<Value, String> {
+    use reqwest::header::{ACCEPT_ENCODING, CONTENT_TYPE, COOKIE, RANGE};
+    use tauri::Emitter;
+    use tokio::io::AsyncWriteExt;
+
+    let target_dir = user_save_dir(app, dir)?;
+    tokio::fs::create_dir_all(&target_dir)
+        .await
+        .map_err(|error| format!("创建下载目录失败：{error}"))?;
+    let safe_file_name = constrain_windows_download_file_name(&target_dir, sanitize_apk_file_name(file_name)?)?;
+    let target = if let Some(raw_path) = target_path.map(str::trim).filter(|value| !value.is_empty()) {
+        let path = validate_download_path_for_file_operation(raw_path)?;
+        if !path_is_direct_child_of(&path, &target_dir)? {
+            return Err("下载文件必须位于当前下载目录中".to_string());
+        }
+        reject_download_symlink(&path)?;
+        path
+    } else {
+        next_available_file_path(&target_dir, &safe_file_name)
+    };
+    let partial = partial_download_path(&target)?;
+    reject_download_symlink(&partial)?;
+    if target.is_file() && !partial.is_file() {
+        return Err(format!("目标文件已经存在：{}", target.display()));
+    }
+    let existing_length = tokio::fs::metadata(&partial)
+        .await
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if existing_length == 0 && !partial.exists() {
+        // 先创建唯一的临时文件占位，避免两个并发任务在网络请求期间选中同一个目标路径。
+        let reservation = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial)
+            .await
+            .map_err(|error| format!("创建临时文件失败：{error}"))?;
+        drop(reservation);
+    }
+    let _ = app.emit(
+        "apk-download-progress",
+        download_event_payload(task_id, "starting", existing_length, 0, 0, &target, &partial, None),
+    );
+
+    // 官方客户端先从应用详情取得数字应用 ID 和版本号，再请求 /v6/apk/download。
+    // /v6/apk/url 返回的是网页跳转地址，不能当作安装包下载地址。
+    let requested_apk_id = apk_id.map(str::trim).filter(|value| !value.is_empty());
+    let requested_version_code = version_code.map(str::trim).filter(|value| !value.is_empty());
+    let detail = if requested_apk_id.is_none() || requested_version_code.is_none() {
+        Some(client.get_app_detail(package_name).await?)
+    } else {
+        None
+    };
+    let detail_data = detail.as_ref().and_then(|value| value.get("data"));
+    let decoded_extra = extra_analysis_data
+        .and_then(decode_extra_analysis_data)
+        .or_else(|| detail_data.and_then(|value| value.get("extraAnalysisData")).and_then(Value::as_str).and_then(decode_extra_analysis_data));
+    let resolved_apk_id = requested_apk_id
+        .map(str::to_string)
+        .or_else(|| download_object_string(detail_data, &["aid", "id", "entityId"]))
+        .ok_or_else(|| "应用详情未返回数字应用 ID".to_string())?;
+    let resolved_version_code = requested_version_code
+        .map(str::to_string)
+        .or_else(|| download_object_string(detail_data, &["versionCode", "versioncode", "version_code", "apkversioncode", "apkVersionCode", "apk_version_code"]))
+        .or_else(|| download_object_string(decoded_extra.as_ref(), &["versionCode", "versioncode", "version_code"]))
+        .ok_or_else(|| "应用详情未返回应用版本号".to_string())?;
+    let request_url = build_coolapk_download_url(package_name, &resolved_apk_id, &resolved_version_code)?;
+    let host = request_url.host_str().unwrap_or_default().to_string();
+    let is_coolapk_download = is_coolapk_download_host(&host);
+
+    if download_control(control) == DownloadControl::Cancel {
+        let _ = tokio::fs::remove_file(&partial).await;
+        let _ = app.emit(
+            "apk-download-progress",
+            download_event_payload(task_id, "canceled", 0, 0, 0, &target, &partial, None),
+        );
+        return Ok(json!({ "status": "canceled", "path": target, "partialPath": partial }));
+    }
+
+    let mut builder = reqwest::Client::builder()
+        .user_agent("Dalvik/2.1.0 (Linux; U; Android 16; 23113RKC6C Build/AQ3A.250226.002) +CoolMarket/16.2.0-2604201-universal")
+        .redirect(reqwest::redirect::Policy::limited(10));
+    if let Some(proxy) = proxy_url.map(str::trim).filter(|value| !value.is_empty()) {
+        builder = builder.proxy(reqwest::Proxy::all(proxy).map_err(|error| format!("代理设置无效：{error}"))?);
+    }
+    let http_client = builder.build().map_err(|error| format!("创建下载客户端失败：{error}"))?;
+    let mut request = if is_coolapk_download {
+        http_client
+            .post(request_url.clone())
+            .form(&[("nd", "1"), ("extraAnalysisData", "")])
+    } else {
+        http_client.get(request_url.clone())
+    };
+    if is_coolapk_download {
+        request = client.apply_download_headers(request)?;
+        if let Some(cookie) = client.get_user_cookie().filter(|value| !value.trim().is_empty()) {
+            let header = reqwest::header::HeaderValue::from_str(&cookie)
+                .map_err(|_| "登录 Cookie 格式无效".to_string())?;
+            request = request.header(COOKIE, header);
+        }
+    }
+    // 反编译 APK 的下载器无论是否断点续传都会发送这两个请求头。
+    request = request
+        .header(RANGE, format!("bytes={existing_length}-"))
+        .header(ACCEPT_ENCODING, "identity");
+    let mut response = request
+        .send()
+        .await
+        .map_err(|error| format!("下载请求失败：{error}"))?;
+    if response.status().as_u16() == 416 && existing_length > 0 {
+        drop(response);
+        let _ = tokio::fs::remove_file(&partial).await;
+        return Err("服务器拒绝断点续传，已清理临时文件，请重试下载".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("下载失败：HTTP {}", response.status()));
+    }
+    let response_status = response.status();
+    let append = existing_length > 0 && response_status.as_u16() == 206;
+    let initial_downloaded = if append { existing_length } else { 0 };
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if content_type.starts_with("text/html") || content_type.starts_with("application/xhtml+xml") {
+        return Err("下载响应是网页内容，不是应用安装包，已拒绝保存".to_string());
+    }
+    let final_url = response.url().to_string();
+    if is_coolapk_download {
+        // 反编译 APK 的 CoolMarketDownloadNetworkExecutor 会在收到响应后调用
+        // downloadVerify；接口异常时官方会继续下载，只有明确返回空结果才判定为劫持。
+        if let Ok(verification) = client
+            .verify_apk_download(apk_name, request_url.as_str(), &final_url)
+            .await
+        {
+            if empty_download_verification(&verification) {
+                return Err("酷安下载校验未通过，已拒绝保存安装包".to_string());
+            }
+        }
+    }
+    let total = if append {
+        response
+            .content_length()
+            .map(|length| length.saturating_add(existing_length))
+            .unwrap_or(0)
+    } else {
+        response.content_length().unwrap_or(0)
+    };
+    if total > APK_DOWNLOAD_MAX_BYTES {
+        return Err("安装包体积超过 8GB，已拒绝下载".to_string());
+    }
+    let mut file = if append {
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&partial)
+            .await
+            .map_err(|error| format!("打开断点文件失败：{error}"))?
+    } else {
+        tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&partial)
+            .await
+            .map_err(|error| format!("创建临时文件失败：{error}"))?
+    };
+    let mut downloaded = initial_downloaded;
+    let started_at = Instant::now();
+    loop {
+        match download_control(control) {
+            DownloadControl::Pause => {
+                drop(file);
+                let _ = app.emit(
+                    "apk-download-progress",
+                    download_event_payload(task_id, "paused", downloaded, total, 0, &target, &partial, None),
+                );
+                return Ok(json!({ "status": "paused", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial }));
+            }
+            DownloadControl::Cancel => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&partial).await;
+                let _ = app.emit(
+                    "apk-download-progress",
+                    download_event_payload(task_id, "canceled", 0, total, 0, &target, &partial, None),
+                );
+                return Ok(json!({ "status": "canceled", "downloaded": 0, "total": total, "path": target, "partialPath": partial }));
+            }
+            DownloadControl::Run => {}
+        }
+        let chunk = tokio::select! {
+            result = response.chunk() => result.map_err(|error| format!("读取下载数据失败：{error}"))?,
+            changed = control.changed() => {
+                changed.map_err(|_| "下载任务控制器已关闭".to_string())?;
+                continue;
+            }
+        };
+        let Some(chunk) = chunk else { break };
+        if chunk.is_empty() {
+            continue;
+        }
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        if downloaded > APK_DOWNLOAD_MAX_BYTES {
+            drop(file);
+            return Err("安装包体积超过 8GB，已中止下载".to_string());
+        }
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| format!("写入临时文件失败：{error}"))?;
+        let speed = downloaded / started_at.elapsed().as_secs().max(1);
+        let _ = app.emit(
+            "apk-download-progress",
+            download_event_payload(task_id, "downloading", downloaded, total, speed, &target, &partial, None),
+        );
+    }
+    file.flush().await.map_err(|error| format!("刷新临时文件失败：{error}"))?;
+    file.sync_all().await.map_err(|error| format!("同步临时文件失败：{error}"))?;
+    drop(file);
+    if total > 0 && downloaded != total {
+        return Err(format!("下载中断：已下载 {downloaded}/{total} 字节"));
+    }
+    tokio::fs::rename(&partial, &target)
+        .await
+        .map_err(|error| format!("保存安装包失败：{error}"))?;
+    let speed = downloaded / started_at.elapsed().as_secs().max(1);
+    let _ = app.emit(
+        "apk-download-progress",
+        download_event_payload(task_id, "completed", downloaded, total, speed, &target, &partial, None),
+    );
+    Ok(json!({ "status": "completed", "downloaded": downloaded, "total": total, "path": target, "partialPath": partial }))
 }
 
 #[tauri::command]
-pub async fn check_update(state: State<'_, AppState>, pkgs: String) -> Result<Value, String> {
-    state.client.check_update(&pkgs).await
+pub async fn start_apk_download(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    task_id: String,
+    package_name: String,
+    apk_name: String,
+    apk_id: Option<String>,
+    version_code: Option<String>,
+    file_name: String,
+    dir: Option<String>,
+    target_path: Option<String>,
+    extra_analysis_data: Option<String>,
+    proxy_url: Option<String>,
+) -> Result<Value, String> {
+    if task_id.trim().is_empty() || package_name.trim().is_empty() {
+        return Err("下载任务参数不完整".to_string());
+    }
+    let mut control = state.downloads.register(&task_id)?;
+    let result = run_apk_download(
+        &app,
+        &state.client,
+        &mut control,
+        &task_id,
+        &package_name,
+        if apk_name.trim().is_empty() { &package_name } else { &apk_name },
+        apk_id.as_deref(),
+        version_code.as_deref(),
+        &file_name,
+        dir.as_deref(),
+        target_path.as_deref(),
+        extra_analysis_data.as_deref(),
+        proxy_url.as_deref(),
+    )
+    .await;
+    state.downloads.finish(&task_id);
+    if let Err(error) = &result {
+        let _ = app.emit(
+            "apk-download-progress",
+            json!({ "taskId": task_id, "status": "failed", "error": error }),
+        );
+    }
+    result
+}
+
+#[tauri::command]
+pub fn pause_apk_download(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    state.downloads.request(&task_id, DownloadControl::Pause)
+}
+
+#[tauri::command]
+pub fn cancel_apk_download(state: State<'_, AppState>, task_id: String) -> Result<(), String> {
+    state.downloads.request(&task_id, DownloadControl::Cancel)
+}
+
+fn validate_download_path_for_file_operation(raw_path: &str) -> Result<PathBuf, String> {
+    let path = validate_custom_dir(raw_path.trim(), "下载文件路径")?;
+    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+    let lower_name = name.to_ascii_lowercase();
+    let is_partial = lower_name.ends_with(".part");
+    let base_name = if is_partial { &lower_name[..lower_name.len() - 5] } else { &lower_name };
+    if name.is_empty()
+        || name.contains("..")
+        || is_windows_reserved_file_name(base_name)
+        || ![".apk", ".xapk", ".apks"].iter().any(|suffix| base_name.ends_with(suffix))
+    {
+        return Err("下载文件路径不合法".to_string());
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn delete_apk_download_file(
+    app: tauri::AppHandle,
+    target_path: Option<String>,
+    partial_path: Option<String>,
+    dir: Option<String>,
+) -> Result<(), String> {
+    let target_dir = user_save_dir(&app, dir.as_deref())?;
+    for raw_path in [target_path, partial_path]
+        .into_iter()
+        .flatten()
+        .filter(|path| !path.trim().is_empty())
+    {
+        let path = validate_download_path_for_file_operation(&raw_path)?;
+        if !path_is_direct_child_of(&path, &target_dir)? {
+            return Err("下载文件必须位于当前下载目录中".to_string());
+        }
+        reject_download_symlink(&path)?;
+        if path.is_file() {
+            tokio::fs::remove_file(&path)
+                .await
+                .map_err(|error| format!("删除下载文件失败：{error}"))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_apk_download_directory(
+    app: tauri::AppHandle,
+    dir: Option<String>,
+) -> Result<(), String> {
+    let target_dir = user_save_dir(&app, dir.as_deref())?;
+    std::fs::create_dir_all(&target_dir).map_err(|error| format!("创建下载目录失败：{error}"))?;
+    opener::open(&target_dir).map_err(|error| format!("打开下载位置失败：{error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_apk_qr(state: State<'_, AppState>, package_name: String) -> Result<Value, String> {
+    state.client.get_apk_qr(&package_name).await
 }
 
 #[tauri::command]
@@ -1707,6 +2253,12 @@ fn user_save_dir(app: &tauri::AppHandle, custom_dir: Option<&str>) -> Result<Pat
     app.path()
         .download_dir()
         .map_err(|_| "无法获取系统下载目录，请在设置中选择下载目录".to_string())
+}
+
+/// 返回当前平台实际使用的下载目录，便于设置页展示真实路径。
+#[tauri::command]
+pub fn get_download_directory(app: tauri::AppHandle, dir: Option<String>) -> Result<String, String> {
+    Ok(user_save_dir(&app, dir.as_deref())?.to_string_lossy().to_string())
 }
 
 /// 下载并保存图片原始数据，目录为空时使用系统下载目录。
@@ -3367,5 +3919,89 @@ mod cache_tests {
 
         assert!(validate_custom_dir(incompatible, "自定义目录").is_err());
         assert!(validate_custom_dir("relative/downloads", "自定义目录").is_err());
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::{
+        build_coolapk_download_url, constrain_windows_download_file_name,
+        empty_download_verification, partial_download_path, sanitize_apk_file_name,
+        validate_download_path_for_file_operation,
+    };
+    use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn download_file_name_keeps_supported_extension_and_removes_path_separators() {
+        assert_eq!(sanitize_apk_file_name("酷安/测试.apk").unwrap(), "酷安_测试.apk");
+        assert_eq!(sanitize_apk_file_name("demo").unwrap(), "demo.apk");
+        assert!(sanitize_apk_file_name("..").is_err());
+        #[cfg(windows)]
+        assert_eq!(sanitize_apk_file_name("CON.apk").unwrap(), "_CON.apk");
+    }
+
+    #[test]
+    fn download_partial_path_keeps_platform_path_separators() {
+        let target = std::env::temp_dir().join("coolapk").join("demo.apk");
+        assert_eq!(partial_download_path(&target).unwrap(), target.with_file_name("demo.apk.part"));
+    }
+
+    #[test]
+    fn long_download_file_name_is_shortened_only_for_windows() {
+        let root = std::env::temp_dir().join("coolapk-download-path");
+        let file_name = format!("{}.apk", "a".repeat(400));
+        let result = constrain_windows_download_file_name(&root, file_name.clone()).unwrap();
+        #[cfg(windows)]
+        assert!(root.join(&result).to_string_lossy().encode_utf16().count() <= 240);
+        #[cfg(not(windows))]
+        assert_eq!(result, file_name);
+    }
+
+    #[test]
+    fn official_download_url_uses_the_v6_download_endpoint_and_required_fields() {
+        let url = build_coolapk_download_url("com.demo.app", "943417", "275").unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host_str(), Some("api.coolapk.com"));
+        assert_eq!(url.path(), "/v6/apk/download");
+        assert_eq!(url.query(), Some("pn=com.demo.app&aid=943417&vc=275&extra="));
+    }
+
+    #[test]
+    fn app_detail_version_accepts_coolapk_apkversioncode_field() {
+        let detail = json!({ "apkversioncode": 7245864 });
+        assert_eq!(super::download_object_string(Some(&detail), &["versionCode", "versioncode", "version_code", "apkversioncode"]), Some("7245864".to_string()));
+    }
+
+    #[test]
+    fn only_official_api_hosts_use_the_coolapk_post_download_protocol() {
+        assert!(super::is_coolapk_download_host("api.coolapk.com"));
+        assert!(super::is_coolapk_download_host("api-dev.coolapk.com"));
+        assert!(!super::is_coolapk_download_host("download.coolapk.com"));
+        assert!(!super::is_coolapk_download_host("cdn.coolapk.com"));
+    }
+
+    #[test]
+    fn download_verification_only_rejects_an_explicit_empty_result() {
+        assert!(empty_download_verification(&json!({ "data": "" })));
+        assert!(!empty_download_verification(&json!({ "data": "verified" })));
+        assert!(!empty_download_verification(&json!({ "data": { "ok": true } })));
+    }
+
+    #[test]
+    fn download_file_operations_accept_apk_and_partial_paths() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("coolapk-download-path-test-{unique}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let apk = root.join("demo.apk").to_string_lossy().to_string();
+        let partial = root.join("demo.apk.part").to_string_lossy().to_string();
+        let text = root.join("demo.txt").to_string_lossy().to_string();
+        assert!(validate_download_path_for_file_operation(&apk).is_ok());
+        assert!(validate_download_path_for_file_operation(&partial).is_ok());
+        assert!(validate_download_path_for_file_operation(&text).is_err());
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1,12 +1,15 @@
 pub mod coolapk;
+pub mod download_manager;
 
 use coolapk::client::CoolapkClient;
 use coolapk::commands::{
     AppState, add_config_compare, add_goods_to_goods_list, add_to_black_list, add_to_ignore_list,
     bind_feed_to_goods_list, change_product_follow_status, change_product_wish_status, change_rating_status, check_login_info,
-    check_login_status, check_update, clean_expired_cache, clear_app_cache, clear_user_cookie,
+    check_login_status, clean_expired_cache, clear_app_cache, clear_user_cookie,
     close_login_window, create_answer, create_feed, create_forward, create_goods_list, create_product_album,
-    delete_feed, delete_goods_list_items, delete_reply, download_update, edit_goods_list,
+    delete_feed, delete_goods_list_items, delete_reply, download_update, start_apk_download,
+    pause_apk_download, cancel_apk_download, delete_apk_download_file, open_apk_download_directory,
+    edit_goods_list,
     edit_goods_list_item, export_json_file, favorite_apk, favorite_feed, fetch_external_page,
     follow_collection, follow_dyh, follow_live, follow_tag, follow_user, get_album_detail, get_album_list,
     create_album, edit_album, add_album_apk, delete_album_apk,
@@ -16,7 +19,7 @@ use coolapk::commands::{
     get_collection_detail, get_collection_item_list, get_collection_list, create_collection,
     update_collection, delete_collection, remove_collection_item, clear_collection_invalid_items,
     cleanup_update_packages, is_update_package_available,
-    get_feed_collection_status, get_cool_picture_rank,
+    get_feed_collection_status, get_cool_picture_rank, get_download_directory,
     get_device_feed_list, get_device_info, get_digest_feeds, get_download_version_list,
     get_discovery_config, get_discovery_page_data, get_live_detail,
     get_dyh_detail, get_dyh_feeds, get_dyh_list, get_dyh_follow_list, get_dyh_subscribe_list,
@@ -56,6 +59,7 @@ use coolapk::commands::{
     unfollow_user, unlike_collection, unlike_feed, unlike_reply, update_device_profile, upload_image,
     vote_goods_list_item,
 };
+use download_manager::DownloadManager;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{Manager, WindowEvent};
@@ -537,7 +541,10 @@ fn is_main_window_navigation_allowed(url: &tauri::Url) -> bool {
 
 pub fn run() {
     let client = CoolapkClient::new();
-    let state = AppState { client };
+    let state = AppState {
+        client,
+        downloads: DownloadManager::new(),
+    };
 
     tauri::Builder::default()
         // 单实例插件必须先注册，才能把外部 deep link 转发到已运行的实例。
@@ -904,6 +911,7 @@ pub fn run() {
             quit_app,
             export_json_file,
             get_cache_info,
+            get_download_directory,
             clear_app_cache,
             clean_expired_cache,
             open_cache_directory,
@@ -984,7 +992,11 @@ pub fn run() {
             remove_from_ignore_list,
             get_apk_url,
             get_apk_qr,
-            check_update,
+            start_apk_download,
+            pause_apk_download,
+            cancel_apk_download,
+            delete_apk_download_file,
+            open_apk_download_directory,
             get_hot_topics,
             get_picture_list,
             get_update_list,

@@ -86,7 +86,7 @@
 
         <!-- 右侧操作区：主次分明的分层网格 -->
         <div class="header-actions">
-          <!-- 核心主下载按钮 -->
+          <!-- 核心主下载按钮：仅下载到电脑，不执行安装 -->
           <AppButton
             variant="primary"
             size="md"
@@ -95,7 +95,7 @@
             :loading="downloadLoading"
             @click="handleDownload"
           >
-            立即下载
+            下载到电脑
           </AppButton>
 
           <!-- 关注与收藏并排行 -->
@@ -121,7 +121,7 @@
             </AppButton>
           </div>
 
-          <!-- 辅助工具并排小按钮（二维码、检查更新） -->
+          <!-- 辅助工具：二维码仍用于手机端查看 -->
           <div class="utility-actions-row">
             <AppButton
               variant="secondary"
@@ -132,16 +132,6 @@
               @click="handleShowQr"
             >
               二维码
-            </AppButton>
-            <AppButton
-              variant="secondary"
-              size="sm"
-              icon="fas fa-sync-alt"
-              class="action-half-btn"
-              :loading="updateLoading"
-              @click="handleCheckUpdate"
-            >
-              检查更新
             </AppButton>
           </div>
         </div>
@@ -494,6 +484,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { CoolapkTauriAPI } from '../api/coolapk';
 import { useAppStore } from '../stores/app';
 import { useAuthStore } from '../stores/auth';
+import { useDownloadStore } from '../stores/downloads';
 import AppButton from '../components/common/AppButton.vue';
 import AppImage from '../components/common/AppImage.vue';
 import AppDialog from '../components/common/AppDialog.vue';
@@ -512,6 +503,7 @@ const route = useRoute();
 const router = useRouter();
 const appStore = useAppStore();
 const authStore = useAuthStore();
+const downloadStore = useDownloadStore();
 // 每个完整路径对应独立缓存实例，固定本实例的路由参数，避免页面隐藏后响应其他路由。
 const packageName = ref((route.params.packageName as string) || '');
 
@@ -524,7 +516,6 @@ const favoriteLoading = ref(false);
 
 const downloadLoading = ref(false);
 const qrLoading = ref(false);
-const updateLoading = ref(false);
 const qrImageUrl = ref('');
 
 const activeDetailTab = ref('detail');
@@ -1022,16 +1013,22 @@ async function handleDownload() {
   if (!packageName.value || downloadLoading.value) return;
   downloadLoading.value = true;
   try {
-    const res = await CoolapkTauriAPI.getApkUrl(packageName.value);
-    const data = res?.data ?? res;
-    const url = extractUrl(data, ['url', 'downloadUrl', 'download_url', 'apkDownloadUrl', 'apk_download_url']);
-    if (!url) {
-      alert('获取下载链接失败：接口未返回有效链接');
-      return;
-    }
-    CoolapkTauriAPI.openUrl(url, 'system');
+    const task = downloadStore.enqueue({
+      title: appTitle.value,
+      packageName: packageName.value,
+      versionName: String(appVersion.value || ''),
+      versionCode: appInfo.value?.versioncode || appInfo.value?.versionCode || appInfo.value?.version_code || appInfo.value?.apkversioncode || appInfo.value?.apkVersionCode || appInfo.value?.apk_version_code || '',
+      apkId: appInfo.value?.aid || appInfo.value?.id || appInfo.value?.apkid || appInfo.value?.apkId || appInfo.value?.entityId || '',
+      logoUrl: logoUrl.value,
+      extraAnalysisData: appInfo.value?.extraAnalysisData || appInfo.value?.extra_analysis_data || '',
+      total: Number(appInfo.value?.apksize || appInfo.value?.size || 0) || 0,
+    });
+    showToast(task.status === 'completed' ? '该版本已经下载完成' : `已加入下载队列：${task.title}`, 'success', 2800, {
+      label: '打开下载中心',
+      onClick: () => { void router.push('/downloads'); },
+    });
   } catch (err: any) {
-    alert(`获取下载链接失败：${err?.message || '请检查网络或登录状态'}`);
+    alert(`加入下载队列失败：${err?.message || '请检查网络或登录状态'}`);
   } finally {
     downloadLoading.value = false;
   }
@@ -1058,47 +1055,6 @@ async function handleShowQr() {
 
 function closeQrModal() {
   qrImageUrl.value = '';
-}
-
-function formatUpdateResult(data: any): string {
-  if (data == null) return '已是最新版本';
-
-  let hasUpdate = false;
-  let firstItem: any = data;
-  if (Array.isArray(data)) {
-    hasUpdate = data.length > 0;
-    firstItem = data[0];
-  } else if (typeof data === 'object') {
-    hasUpdate = !!(data.hasUpdate || data.has_update);
-    if (data.versions && Array.isArray(data.versions) && data.versions.length > 0) {
-      hasUpdate = true;
-      firstItem = data.versions[0];
-    }
-  }
-
-  if (!hasUpdate) return '已是最新版本';
-
-  const versionName = firstItem?.versionName || firstItem?.version_name || firstItem?.apkversionname || firstItem?.version || '未知版本';
-  const size = firstItem?.size || firstItem?.apksize || firstItem?.apkSizeFormatted || '';
-  const changeLog = firstItem?.changeLog || firstItem?.changelog || firstItem?.message || '';
-  let text = `发现新版本：${versionName}`;
-  if (size) text += `（${size}）`;
-  if (changeLog) text += `\n更新日志：${changeLog}`;
-  return text;
-}
-
-async function handleCheckUpdate() {
-  if (!packageName.value || updateLoading.value) return;
-  updateLoading.value = true;
-  try {
-    const res = await CoolapkTauriAPI.checkUpdate(packageName.value);
-    const data = res?.data ?? res;
-    alert(formatUpdateResult(data));
-  } catch (err: any) {
-    alert(`检查更新失败：${err?.message || '请检查网络或登录状态'}`);
-  } finally {
-    updateLoading.value = false;
-  }
 }
 
 async function toggleFavorite() {
@@ -1263,7 +1219,10 @@ function goAlbum(item: any) {
   if (id) router.push(`/album/${id}`);
 }
 
-onMounted(() => fetchAppDetail());
+onMounted(() => {
+  void downloadStore.initialize();
+  void fetchAppDetail();
+});
 </script>
 
 <style scoped>

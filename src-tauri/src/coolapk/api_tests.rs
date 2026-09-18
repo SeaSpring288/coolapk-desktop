@@ -2256,12 +2256,6 @@ async fn probe_undocumented_endpoints() {
             ],
         ),
         ("全局礼品", "/v6/apk/giftList", &[("page", "1".to_string())]),
-        // === 应用更新检查 ===
-        (
-            "检查更新",
-            "/v6/apk/checkUpdate",
-            &[("pkgs", "com.coolapk.market".to_string())],
-        ),
     ];
 
     println!(
@@ -2275,27 +2269,14 @@ async fn probe_undocumented_endpoints() {
 
     for (name, path, params) in cases {
         let url = format!("https://api.coolapk.com{path}");
-        // 对于检查更新使用 POST
-        let is_update_check = name.contains("检查更新");
-        let res = if is_update_check {
-            client
-                .client
-                .post(&url)
-                .header("X-App-Token", token.clone())
-                .header("X-Requested-With", "com.coolapk.market")
-                .form(params)
-                .send()
-                .await
-        } else {
-            client
-                .client
-                .get(&url)
-                .header("X-App-Token", token.clone())
-                .header("X-Requested-With", "XMLHttpRequest")
-                .query(params)
-                .send()
-                .await
-        };
+        let res = client
+            .client
+            .get(&url)
+            .header("X-App-Token", token.clone())
+            .header("X-Requested-With", "XMLHttpRequest")
+            .query(params)
+            .send()
+            .await;
 
         match res {
             Ok(r) => {
