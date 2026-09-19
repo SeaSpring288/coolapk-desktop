@@ -214,3 +214,16 @@ jobs:
           prerelease: false
           generateReleaseNotes: true
           args: ${{ matrix.args }}
+
+      - name: 校验 macOS App 包签名
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          app_path="$(find src-tauri/target -type d -path '*/release/bundle/macos/*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "未找到 macOS .app 产物" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          codesign --display --verbose=4 "$app_path"
