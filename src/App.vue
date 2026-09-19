@@ -80,7 +80,7 @@
         <p v-if="downloadNotice.releaseNotes" class="startup-update-notes">
           <span class="startup-update-notes-label">更新日志：</span>{{ downloadNotice.releaseNotes }}
         </p>
-        <p class="startup-update-notes">已发现新版本，更新包正在后台下载。下载完成后会再次提示是否立即安装。</p>
+        <p class="startup-update-notes">已发现新版本，更新包正在后台下载。下载完成后会再次提示是否立即更新。</p>
         <p v-if="downloading" class="startup-update-notes">
           当前进度：{{ downloading.percent }}%（{{ formatBytes(downloading.downloaded) }} / {{ formatBytes(downloading.total) }}）
         </p>
@@ -90,14 +90,29 @@
       </div>
     </AppDialog>
 
-    <AppDialog :is-open="Boolean(readyInfo) && isWindows" title="更新包已下载" :width="460" @close="readyInfo = null">
+    <AppDialog :is-open="Boolean(readyInfo) && isWindows && readyUpdateVisible" title="更新包已下载" :width="460" @close="readyUpdateVisible = false">
       <div v-if="readyInfo" class="startup-update">
         <p class="startup-update-version">酷安桌面版 {{ readyInfo.version }} 更新包已下载完成</p>
-        <p class="startup-update-notes">是否立即更新？更新将关闭当前窗口，全自动完成安装后重新打开软件。</p>
+        <div v-if="readyInfo.releaseNotes" class="startup-update-notes-block">
+          <div class="startup-update-notes-header">
+            <i class="fas fa-sparkles text-brand"></i>
+            <span class="startup-update-notes-label">更新日志</span>
+          </div>
+          <div
+            class="startup-update-notes custom-scrollbar"
+            v-html="renderReleaseMarkdown(readyInfo.releaseNotes)"
+            @click="handleAnchorClick"
+          ></div>
+        </div>
+        <p class="startup-update-notes">
+          {{ readyInfo.packageType === 'portable'
+            ? '是否立即更新？程序将关闭当前窗口，替换此单文件后自动重新打开。'
+            : '是否立即更新？程序将关闭当前窗口，全自动完成安装后重新打开软件。' }}
+        </p>
         <div class="startup-update-actions">
-          <button class="startup-update-later" @click="readyInfo = null">稍后再说</button>
+          <button class="startup-update-later" @click="readyUpdateVisible = false">稍后再说</button>
           <button class="startup-update-button" :disabled="installingUpdate" @click="installNow">
-            {{ installingUpdate ? '正在启动安装…' : '立即更新' }}
+            {{ installingUpdate ? '正在启动更新…' : '立即更新' }}
           </button>
         </div>
       </div>
@@ -134,7 +149,16 @@ import AppDialog from './components/common/AppDialog.vue';
 import { useAuthStore } from './stores/auth';
 import { useSettingsStore } from './stores/settings';
 import { useDownloadStore } from './stores/downloads';
-import { APP_VERSION, checkLatestRelease, isNewerVersion, normalizeVersion, type UpdateInfo } from './utils/updateChecker';
+import {
+  APP_VERSION,
+  checkLatestRelease,
+  isUpdateAssetCompatible,
+  isNewerVersion,
+  normalizeVersion,
+  shouldReplaceDownloadedUpdate,
+  versionFromAssetName,
+  type UpdateInfo,
+} from './utils/updateChecker';
 import { renderReleaseMarkdown } from './utils/markdown';
 import { handleAnchorClick } from './utils/anchorClick';
 import { desktopNotify } from './utils/desktopNotify';
@@ -157,7 +181,12 @@ function getRouteKey(route: any): string {
 
 const PENDING_UPDATE_KEY = 'coolapk_pending_update';
 
-type ReadyInfo = { version: string; path: string };
+type ReadyInfo = {
+  version: string;
+  path: string;
+  packageType: 'installer' | 'portable';
+  releaseNotes?: string;
+};
 type DownloadNotice = { version: string; releaseNotes?: string };
 
 type DownloadProgress = { downloaded: number; total: number; percent: number };
@@ -168,10 +197,12 @@ const downloadStore = useDownloadStore();
 const updateInfo = ref<UpdateInfo | null>(null);
 const downloadNotice = ref<DownloadNotice | null>(null);
 const readyInfo = ref<ReadyInfo | null>(null);
+const readyUpdateVisible = ref(true);
 const downloading = ref<DownloadProgress | null>(null);
 const downloadError = ref<string | null>(null);
 const installingUpdate = ref(false);
 const isWindows = ref(false);
+const updatePackageType = ref<'installer' | 'portable'>('installer');
 let unregisterHotkeys: (() => void) | null = null;
 let unregisterSelectionClear: (() => void) | null = null;
 let updateDownloadInFlight = false;
@@ -185,33 +216,54 @@ function formatBytes(bytes: number) {
 async function checkForUpdate(manual = false) {
   try {
     isWindows.value = (await getPlatformInfo()).os === 'windows';
-    const result = await checkLatestRelease(settingsStore.settings.updateChannel);
+    if (manual && isWindows.value && !readyInfo.value) {
+      await restorePendingUpdate();
+    }
+    if (isWindows.value) {
+      updatePackageType.value = await CoolapkTauriAPI.getUpdateDistribution();
+    }
+    const result = await checkLatestRelease(
+      settingsStore.settings.updateChannel,
+      undefined,
+      updatePackageType.value
+    );
     const latestVersion = normalizeVersion(result.latestVersion || '') || '';
     const ignoredVersion = normalizeVersion(settingsStore.settings.ignoredUpdateVersion) || '';
 
     // 如果待安装包不是远端最新版本，且新版本有可用安装包，则切换到新版本。
     // 忽略更新、没有安装包或手动检查失败时保留原待安装包，避免用户已下载的更新无故丢失。
     const shouldReplacePending =
-      !manual &&
       Boolean(readyInfo.value) &&
       result.hasNew &&
-      Boolean(result.installerUrl) &&
       isWindows.value &&
       Boolean(latestVersion) &&
-      isNewerVersion(latestVersion, readyInfo.value?.version || '') &&
-      !settingsStore.settings.ignoreAllUpdates &&
-      latestVersion !== ignoredVersion;
+      shouldReplaceDownloadedUpdate(
+        readyInfo.value?.version || '',
+        latestVersion,
+        Boolean(result.installerUrl)
+      ) &&
+      (manual || (
+        !settingsStore.settings.ignoreAllUpdates &&
+        latestVersion !== ignoredVersion
+      ));
     if (shouldReplacePending) {
       localStorage.removeItem(PENDING_UPDATE_KEY);
       readyInfo.value = null;
+      readyUpdateVisible.value = false;
       try {
         await CoolapkTauriAPI.cleanupUpdatePackages();
       } catch (cleanupError) {
         console.warn('切换最新更新包时清理旧包失败:', cleanupError);
       }
     }
-    // 当前待安装包已经是最新可用包时，不重复下载，也不弹出重复提示。
-    if (!manual && readyInfo.value) return;
+    // 已下载版本与 GitHub 最新版一致（或更新）时直接复用，不再重复下载。
+    if (readyInfo.value) {
+      if (manual) {
+        updateInfo.value = null;
+        readyUpdateVisible.value = true;
+      }
+      return;
+    }
 
     if (result.hasNew && !manual) {
       if (settingsStore.settings.ignoreAllUpdates) return;
@@ -224,6 +276,11 @@ async function checkForUpdate(manual = false) {
     }
     if (manual || result.hasNew) updateInfo.value = result;
   } catch {
+    if (manual && readyInfo.value) {
+      updateInfo.value = null;
+      readyUpdateVisible.value = true;
+      return;
+    }
     if (!manual) return;
     updateInfo.value = {
       hasNew: false,
@@ -237,7 +294,12 @@ async function startBackgroundDownload(info: UpdateInfo) {
   const url = info.installerUrl;
   // 自动检查、手动检查和按钮点击可能在同一时间触发；同一应用只允许一个下载任务，
   // 否则多个任务会同时写同一个安装包并让进度事件互相覆盖。
-  if (!isWindows.value || !url || updateDownloadInFlight || downloading.value || readyInfo.value) return;
+  if (readyInfo.value) {
+    updateInfo.value = null;
+    readyUpdateVisible.value = true;
+    return;
+  }
+  if (!isWindows.value || !url || updateDownloadInFlight || downloading.value) return;
   updateDownloadInFlight = true;
   updateInfo.value = null;
   downloadError.value = null;
@@ -272,13 +334,19 @@ async function startBackgroundDownload(info: UpdateInfo) {
     }
     downloading.value = null;
     downloadNotice.value = null;
-    readyInfo.value = { version: downloadedVersion, path };
+    readyInfo.value = {
+      version: downloadedVersion,
+      path,
+      packageType: info.packageType || updatePackageType.value,
+      releaseNotes: info.releaseNotes || '',
+    };
+    readyUpdateVisible.value = true;
     localStorage.setItem(PENDING_UPDATE_KEY, JSON.stringify(readyInfo.value));
     if (settingsStore.settings.desktopNotifications && settingsStore.settings.notifyDownloadComplete) {
       void desktopNotify(
         {
           title: '更新包下载完成',
-          body: `酷安桌面版 ${info.latestVersion || ''} 更新包已下载完成，点击“立即更新”即可安装。`,
+          body: `酷安桌面版 ${info.latestVersion || ''} 更新包已下载完成，点击“立即更新”即可升级。`,
         },
         settingsStore.settings.notificationSound
       );
@@ -300,13 +368,14 @@ function installNow() {
   if (info.version && !isNewerVersion(info.version)) {
     localStorage.removeItem(PENDING_UPDATE_KEY);
     readyInfo.value = null;
+    readyUpdateVisible.value = false;
     void CoolapkTauriAPI.cleanupUpdatePackages().catch(() => undefined);
     return;
   }
   installingUpdate.value = true;
   void (async () => {
     try {
-      await CoolapkTauriAPI.installUpdate(info.path);
+      await CoolapkTauriAPI.installUpdate(info.path, info.packageType === 'portable');
       // 保留待安装记录到下次启动：安装程序可能启动后失败或被取消，
       // 下次启动可校验版本和文件是否仍存在，再决定重试或重新下载。
       await settingsStore.flushSettings();
@@ -344,6 +413,7 @@ async function restorePendingUpdate(): Promise<boolean> {
   const clearInvalidPending = async () => {
     localStorage.removeItem(PENDING_UPDATE_KEY);
     readyInfo.value = null;
+    readyUpdateVisible.value = false;
     try {
       await CoolapkTauriAPI.cleanupUpdatePackages();
     } catch (cleanupError) {
@@ -360,7 +430,9 @@ async function restorePendingUpdate(): Promise<boolean> {
     const pending = JSON.parse(pendingRaw) as Partial<ReadyInfo>;
     const version = normalizeVersion(String(pending?.version || ''));
     const path = typeof pending?.path === 'string' ? pending.path.trim() : '';
-    if (!version || !path || !isNewerVersion(version)) {
+    const fileName = path.split(/[\\/]/).pop() || '';
+    const fileVersion = versionFromAssetName(fileName);
+    if (!version || !path || fileVersion !== version || !isNewerVersion(version)) {
       await clearInvalidPending();
       return false;
     }
@@ -371,7 +443,19 @@ async function restorePendingUpdate(): Promise<boolean> {
       return false;
     }
 
-    readyInfo.value = { version, path };
+    const packageType = pending.packageType === 'portable' ? 'portable' : 'installer';
+    const currentPackageType = await CoolapkTauriAPI.getUpdateDistribution();
+    const currentPlatform = await getPlatformInfo();
+    if (
+      packageType !== currentPackageType ||
+      !isUpdateAssetCompatible(fileName, currentPlatform, packageType)
+    ) {
+      await clearInvalidPending();
+      return false;
+    }
+    const releaseNotes = typeof pending.releaseNotes === 'string' ? pending.releaseNotes.trim() : '';
+    readyInfo.value = { version, path, packageType, releaseNotes };
+    readyUpdateVisible.value = true;
     try {
       await CoolapkTauriAPI.cleanupUpdatePackages(path);
     } catch (cleanupError) {

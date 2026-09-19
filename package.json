@@ -1,7 +1,7 @@
 {
   "name": "coolapk-desktop",
   "private": true,
-  "version": "1.20.1",
+  "version": "1.21.0",
   "description": "基于 Tauri 2、Vue 3 和 Rust 的非官方酷安桌面客户端",
   "author": "daimiaopeng",
   "license": "MIT",
@@ -12,7 +12,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/set-version.mjs",
+    "prebuild": "node scripts/set-version.mjs && node scripts/clean-dist.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

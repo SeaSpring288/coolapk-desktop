@@ -3360,22 +3360,44 @@ pub fn open_cache_directory(
     Ok(image.to_string_lossy().to_string())
 }
 
-/// 以静默更新模式启动安装包：/S 静默、/UPDATE 跳过卸载、/R 安装完成后自动重新启动应用
+/// 返回当前 Windows 发行方式。安装版目录带有 NSIS 的 uninstall.exe；否则视为单文件便携版。
 #[tauri::command]
-pub fn install_update(installer_path: String) -> Result<(), String> {
+pub fn get_update_distribution() -> String {
     #[cfg(target_os = "windows")]
     {
-        install_update_windows(installer_path)
+        let is_installed = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|parent| parent.join("uninstall.exe")))
+            .is_some_and(|path| path.is_file());
+        if is_installed {
+            "installer".to_string()
+        } else {
+            "portable".to_string()
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        "installer".to_string()
+    }
+}
+
+/// 安装版以 NSIS 静默更新；单文件版启动下载好的新程序作为更新助手，退出后原位替换并重启。
+#[tauri::command]
+pub fn install_update(installer_path: String, portable: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        install_update_windows(installer_path, portable)
     }
     #[cfg(not(target_os = "windows"))]
     {
         let _ = installer_path;
+        let _ = portable;
         Err("当前平台暂不支持应用内自动安装，请前往发布页面手动下载安装".to_string())
     }
 }
 
 #[cfg(target_os = "windows")]
-fn install_update_windows(installer_path: String) -> Result<(), String> {
+fn install_update_windows(installer_path: String, portable: bool) -> Result<(), String> {
     // 只允许执行更新目录内的 .exe/.msi 安装包：
     // 路径必须真实存在于下载目录（canonicalize 解析 .. / 符号链接后再前缀校验），
     // 防止前端被注入时借助该命令执行任意文件。
@@ -3393,6 +3415,35 @@ fn install_update_windows(installer_path: String) -> Result<(), String> {
         .to_ascii_lowercase();
     if ext != "exe" && ext != "msi" {
         return Err("拒绝安装非安装包文件".to_string());
+    }
+
+    if portable {
+        if ext != "exe" {
+            return Err("便携版更新包必须是 EXE 文件".to_string());
+        }
+        let current_exe = std::env::current_exe()
+            .and_then(std::fs::canonicalize)
+            .map_err(|error| format!("无法定位当前程序：{error}"))?;
+        let current_dir = current_exe
+            .parent()
+            .ok_or_else(|| "无法定位便携版所在目录".to_string())?;
+        let write_probe = current_dir.join(format!(
+            ".coolapk-update-write-test-{}",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&write_probe)
+            .map_err(|error| format!("便携版所在目录不可写，无法自动更新：{error}"))?;
+        let _ = std::fs::remove_file(write_probe);
+        std::process::Command::new(&canonical)
+            .arg("--coolapk-apply-portable-update")
+            .arg(std::process::id().to_string())
+            .arg(current_exe)
+            .spawn()
+            .map_err(|error| format!("启动便携版更新助手失败：{error}"))?;
+        return Ok(());
     }
 
     std::process::Command::new(&canonical)

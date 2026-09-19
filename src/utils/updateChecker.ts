@@ -12,12 +12,33 @@ export type UpdateInfo = {
   publishedAt?: string;
   downloadUrl?: string;
   installerUrl?: string;
+  packageType?: UpdatePackageType;
 };
+
+export type UpdatePackageType = 'installer' | 'portable';
 
 export type InstallerAsset = {
   name?: string;
   browser_download_url?: string;
 };
+
+export function isUpdateAssetCompatible(
+  name: string,
+  platform: PlatformInfo,
+  packageType: UpdatePackageType
+): boolean {
+  if (platform.os !== 'windows') return false;
+  const typePattern = packageType === 'portable'
+    ? /[-_]portable(?:[-_][^.]+)*\.exe$/i
+    : /[-_]setup(?:[-_][^.]+)*\.exe$/i;
+  if (!typePattern.test(name)) return false;
+  const archPattern = platform.arch === 'aarch64'
+    ? /(?:^|[-_])(?:arm64|aarch64)(?=[-_.]|$)/i
+    : platform.arch === 'x86_64'
+      ? /(?:^|[-_])(?:x64|amd64)(?=[-_.]|$)/i
+      : null;
+  return Boolean(archPattern?.test(name));
+}
 
 export function selectInstallerAsset(
   assets: InstallerAsset[],
@@ -41,10 +62,35 @@ export function selectInstallerAsset(
   return hasExplicitArch ? undefined : candidates[0];
 }
 
+export function selectPortableAsset(
+  assets: InstallerAsset[],
+  platform: PlatformInfo
+): InstallerAsset | undefined {
+  if (platform.os !== 'windows') return undefined;
+  const candidates = assets.filter(
+    (asset) => asset.name && /[-_]portable\.exe$/i.test(asset.name) && asset.browser_download_url
+  );
+  const archPattern = platform.arch === 'aarch64'
+    ? /(?:^|[-_])(?:arm64|aarch64)(?=[-_.]|$)/i
+    : platform.arch === 'x86_64'
+      ? /(?:^|[-_])(?:x64|amd64)(?=[-_.]|$)/i
+      : null;
+  if (!archPattern) return undefined;
+  return candidates.find((asset) => archPattern.test(asset.name || ''));
+}
+
 export function isNewerVersion(latest: string, current = APP_VERSION) {
   const latestVersion = parseVersion(latest);
   const currentVersion = parseVersion(current);
   return Boolean(latestVersion && currentVersion && compareVersions(latestVersion, currentVersion) > 0);
+}
+
+export function shouldReplaceDownloadedUpdate(
+  downloadedVersion: string,
+  latestVersion: string,
+  hasCompatibleAsset: boolean
+): boolean {
+  return hasCompatibleAsset && isNewerVersion(latestVersion, downloadedVersion);
 }
 
 type ParsedVersion = {
@@ -140,18 +186,22 @@ export function getCurrentVersionChangelog(version = APP_VERSION, remoteBody?: s
 
 export async function checkLatestRelease(
   channel: UpdateChannel = 'stable',
-  platform?: PlatformInfo
+  platform?: PlatformInfo,
+  packageType: UpdatePackageType = 'installer'
 ): Promise<UpdateInfo> {
   const release = await pickRelease(channel);
   const tagName = release.tag_name || '';
   const hasNew = Boolean(normalizeVersion(tagName)) && isNewerVersion(tagName);
 
-  // 挑选 Windows 安装包（NSIS setup.exe），智能匹配系统架构 (x64 / arm64)，且版本号匹配
+  // 按当前运行模式挑选 NSIS 安装包或真正的单文件便携版，并严格匹配架构与版本号。
   let installerUrl: string | undefined;
   const assets: InstallerAsset[] = release.assets || [];
-  const candidates = assets.filter(
-    (asset) => asset.name && /[-_]setup\.exe$/i.test(asset.name) && asset.browser_download_url
-  );
+  const candidates = assets.filter((asset) => {
+    if (!asset.name || !asset.browser_download_url) return false;
+    return packageType === 'portable'
+      ? /[-_]portable\.exe$/i.test(asset.name)
+      : /[-_]setup\.exe$/i.test(asset.name);
+  });
   const tagVersion = normalizeVersion(tagName);
   const versionedCandidates = candidates.filter((asset) => Boolean(asset.name && versionFromAssetName(asset.name)));
   const versionMatched = candidates.filter(
@@ -166,7 +216,9 @@ export async function checkLatestRelease(
       : candidates;
 
   const currentPlatform = platform ?? await getPlatformInfo();
-  installerUrl = selectInstallerAsset(validCandidates, currentPlatform)?.browser_download_url;
+  installerUrl = (packageType === 'portable'
+    ? selectPortableAsset(validCandidates, currentPlatform)
+    : selectInstallerAsset(validCandidates, currentPlatform))?.browser_download_url;
 
   const releaseNotes = hasNew
     ? (release.body ? release.body.trim() : '暂无特别更新说明')
@@ -181,10 +233,11 @@ export async function checkLatestRelease(
     publishedAt,
     downloadUrl: release.html_url || 'https://github.com/daimiaopeng/coolapk-desktop/releases',
     installerUrl,
+    packageType,
   };
 }
 
-function versionFromAssetName(name: string) {
+export function versionFromAssetName(name: string) {
   const match = name.match(/(?:^|[-_])v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=[-_]|$)/i);
   return match ? normalizeVersion(match[1]) : undefined;
 }

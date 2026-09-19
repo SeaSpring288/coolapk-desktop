@@ -22,11 +22,12 @@
 
 | 操作系统 | 文件格式 | 推荐安装包 |
 | :--- | :--- | :--- |
-| **Windows** | `.exe` | `coolapk-desktop_x.x.x_x64-setup.exe` (x64) / `arm64-setup.exe` (ARM64) |
+| **Windows 安装版** | `.exe` | `coolapk-desktop_x.x.x_x64-setup.exe` (x64) / `arm64-setup.exe` (ARM64) |
+| **Windows 单文件版** | `.exe` | `coolapk-desktop_x.x.x_x64-portable.exe` (x64) / `arm64-portable.exe` (ARM64) |
 | **macOS** | `.dmg` / `.app` | `coolapk-desktop_x.x.x_aarch64.dmg` (Apple 芯片) / `x64.dmg` (Intel 芯片) |
 | **Linux** | `.AppImage` / `.deb` / `.rpm` | `coolapk-desktop_x.x.x_amd64.AppImage` / `.deb` / `.rpm` |
 
-> 💡 **提示**：构建产物均由 GitHub Actions 自动化流程在云端打包，无任何广告及恶意注入。
+> 💡 **提示**：构建产物均由 GitHub Actions 自动化流程在云端打包。Windows 单文件版无需解压或安装，系统需已有 WebView2 Runtime。
 
 ## 界面预览
 
@@ -88,8 +89,9 @@ npm run tauri dev
 生产构建可按当前平台选择产物格式：
 
 ```bash
-# Windows：仅构建 NSIS 安装包
+# Windows：构建 NSIS 安装包；原始 release 可执行文件即单文件版
 npm run tauri build -- --bundles nsis
+./scripts/prepare-windows-portable.ps1 -Architecture x64
 
 # Linux
 npm run tauri build -- --bundles appimage,deb,rpm
@@ -100,7 +102,8 @@ npm run tauri build -- --bundles app,dmg
 
 安装包位于 `src-tauri/target/release/bundle/`。GitHub Actions 会提供：
 
-- Windows x64：仅提供 NSIS 安装包 `-setup.exe`，不上传便携版或 MSI
+- Windows x64：NSIS 安装包 `-setup.exe`、单文件便携版 `x64-portable.exe`
+- Windows ARM64：NSIS 安装包 `-setup.exe`、单文件便携版 `arm64-portable.exe`
 - Linux x64：AppImage 免安装版 `.AppImage`、Debian 安装包 `.deb`、RPM 安装包 `.rpm`
 - macOS Apple 芯片：磁盘映像 `.dmg`、应用包 `.app`
 - macOS Intel：磁盘映像 `.dmg`、应用包 `.app`
@@ -118,7 +121,7 @@ git tag v1.2.3
 git push origin main v1.2.3
 ```
 
-安装包文件名（如 `coolapk-desktop_1.2.3_x64-setup.exe`）会带版本号；客户端自动更新只接受与标签版本一致的安装包，避免装错版本。
+Windows 客户端会自动识别当前运行方式：安装版下载同架构的 `-setup.exe` 静默升级，单文件版下载同架构的 `-portable.exe`，退出后原位替换并重启。两种更新包都必须与 Release 标签版本一致，避免装错版本。
 
 ## 常用检查
 

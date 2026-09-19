@@ -1316,8 +1316,12 @@ export class CoolapkTauriAPI {
     return await invoke<string>('open_cache_directory', { cacheDir });
   }
 
-  static async installUpdate(installerPath: string) {
-    await invoke('install_update', { installerPath });
+  static async installUpdate(installerPath: string, portable = false) {
+    await invoke('install_update', { installerPath, portable });
+  }
+
+  static async getUpdateDistribution() {
+    return await invoke<'installer' | 'portable'>('get_update_distribution');
   }
 
   static async isUpdatePackageAvailable(installerPath: string) {
