@@ -1447,7 +1447,7 @@ function handleUserClick() {
 .exp-num-text {
   font-size: 11px;
   color: var(--text-tertiary);
-  font-family: Inter, system-ui, sans-serif;
+  font-family: var(--font-family-base);
   font-weight: 550;
   white-space: nowrap;
 }

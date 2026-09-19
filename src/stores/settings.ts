@@ -6,6 +6,7 @@ import type {
   ThemeMode,
   FeedDensity,
   ImageQuality,
+  FontFamily,
   AccentColor,
   NavVisibilitySettings,
   DeviceFingerprintSettings,
@@ -50,6 +51,7 @@ const defaultNavVisibility: NavVisibilitySettings = {
   history: true,
   messages: true,
   following: true,
+  downloads: true,
   goods: true,
   events: true,
   nodes: true,
@@ -101,6 +103,7 @@ const defaultSettings: AppSettings = {
   theme: 'system',
   density: 'standard',
   feedLayout: 'single',
+  fontFamily: '',
   fontSize: 15,
   zoom: DEFAULT_ZOOM,
   zoomManuallySet: false,
@@ -194,6 +197,16 @@ function readNumber(value: unknown, fallback: number, min: number, max: number) 
   return Math.min(Math.max(value, min), max);
 }
 
+function normalizeFontFamily(value: unknown, fallback = ''): FontFamily {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  if (!normalized || normalized === 'system') return '';
+  // 兼容上一版未发布的固定选项设置，避免本地测试配置留下无效的 CSS 字体名。
+  if (normalized === 'noto-sans-sc') return 'Noto Sans SC';
+  if (normalized.length > 128 || /[\u0000-\u001f\u007f]/.test(normalized)) return fallback;
+  return normalized;
+}
+
 /** 只接受已知类型和取值，避免损坏的 JSON 让页面出现不可用设置。 */
 export function normalizeSettings(value: unknown): AppSettings {
   const source = isRecord(value) ? value : {};
@@ -201,6 +214,7 @@ export function normalizeSettings(value: unknown): AppSettings {
   if (isOneOf(source.theme, ['light', 'dark', 'system'])) result.theme = source.theme;
   if (isOneOf(source.density, ['comfortable', 'standard', 'compact'])) result.density = source.density;
   if (isOneOf(source.feedLayout, ['single', 'double'])) result.feedLayout = source.feedLayout;
+  result.fontFamily = normalizeFontFamily(source.fontFamily, result.fontFamily);
   if (isOneOf(source.accentColor, ['green', 'blue', 'violet', 'orange'])) result.accentColor = source.accentColor;
   if (isOneOf(source.defaultHomeTab, ['index_v8', 'digest', 'hot', 'latest', 'cool_picture', 'secondhand', 'pictures', 'dyh'])) result.defaultHomeTab = source.defaultHomeTab;
   if (Array.isArray(source.homeTabOrder)) {
@@ -407,6 +421,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }, { immediate: true });
   watch(() => settings.value.accentColor, applyAccent, { immediate: true });
   watch(() => settings.value.density, applyDensity, { immediate: true });
+  watch(() => settings.value.fontFamily, applyFontFamily, { immediate: true });
   watch(() => settings.value.fontSize, applyFontSize, { immediate: true });
   watch(() => settings.value.zoom, applyZoom, { immediate: true });
   watch(() => settings.value.reduceMotion, applyReduceMotion, { immediate: true });
@@ -525,6 +540,18 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.style.setProperty('--font-size-body', `${safe}px`);
   }
 
+  function applyFontFamily(fontFamily: FontFamily) {
+    const root = document.documentElement;
+    const selected = normalizeFontFamily(fontFamily);
+    if (!selected) {
+      root.style.removeProperty('--font-family-base');
+      return;
+    }
+
+    const escaped = selected.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    root.style.setProperty('--font-family-base', `"${escaped}", var(--font-family-system)`);
+  }
+
   function applyZoom(zoom: number) {
     const safeZoom = clampZoom(zoom);
     const factor = safeZoom / 100;
@@ -546,6 +573,7 @@ export const useSettingsStore = defineStore('settings', () => {
     applyTheme(settings.value.theme);
     applyAccent(settings.value.accentColor);
     applyDensity(settings.value.density);
+    applyFontFamily(settings.value.fontFamily);
     applyFontSize(settings.value.fontSize);
     applyZoom(settings.value.zoom);
     applyReduceMotion(settings.value.reduceMotion);

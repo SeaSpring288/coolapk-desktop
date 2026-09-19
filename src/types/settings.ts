@@ -1,6 +1,8 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type FeedDensity = 'comfortable' | 'standard' | 'compact';
 export type FeedLayout = 'single' | 'double';
+/** 空字符串表示使用应用原有的系统回退字体栈，否则保存 Windows 返回的字体族名称。 */
+export type FontFamily = string;
 export type ImageQuality = 'standard' | 'hd' | 'raw';
 export type AccentColor = 'green' | 'blue' | 'violet' | 'orange';
 export type HomeTabKey = string;
@@ -56,6 +58,7 @@ export interface NavVisibilitySettings {
   history: boolean;
   messages: boolean;
   following: boolean;
+  downloads: boolean;
   goods: boolean;
   events: boolean;
   nodes: boolean;
@@ -108,6 +111,7 @@ export interface AppSettings {
   theme: ThemeMode;
   density: FeedDensity;
   feedLayout: FeedLayout;
+  fontFamily: FontFamily;
   fontSize: number;
   zoom: number;
   zoomManuallySet: boolean;

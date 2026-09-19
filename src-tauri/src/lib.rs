@@ -397,6 +397,86 @@ fn set_window_theme(app: tauri::AppHandle, theme: Option<String>) -> Result<(), 
     Ok(())
 }
 
+#[cfg(windows)]
+fn choose_windows_font_family(
+    owner: windows::Win32::Foundation::HWND,
+    current_font: Option<&str>,
+) -> Result<Option<String>, String> {
+    use std::mem::size_of;
+    use windows::Win32::Graphics::Gdi::LOGFONTW;
+    use windows::Win32::UI::Controls::Dialogs::{
+        CF_INITTOLOGFONTSTRUCT, CF_SCREENFONTS, CHOOSEFONTW, ChooseFontW,
+    };
+
+    let mut log_font = LOGFONTW::default();
+    let mut flags = CF_SCREENFONTS;
+    if let Some(font) = current_font.map(str::trim).filter(|font| !font.is_empty()) {
+        let encoded: Vec<u16> = font
+            .encode_utf16()
+            .take(log_font.lfFaceName.len().saturating_sub(1))
+            .collect();
+        log_font.lfFaceName[..encoded.len()].copy_from_slice(&encoded);
+        flags = flags | CF_INITTOLOGFONTSTRUCT;
+    }
+
+    let mut choose_font = CHOOSEFONTW {
+        lStructSize: size_of::<CHOOSEFONTW>() as u32,
+        hwndOwner: owner,
+        lpLogFont: &mut log_font,
+        Flags: flags,
+        ..Default::default()
+    };
+
+    if !unsafe { ChooseFontW(&mut choose_font).as_bool() } {
+        // 取消选择器不是错误，前端保留当前字体。
+        return Ok(None);
+    }
+
+    let length = log_font
+        .lfFaceName
+        .iter()
+        .position(|character| *character == 0)
+        .unwrap_or(log_font.lfFaceName.len());
+    let font = String::from_utf16(&log_font.lfFaceName[..length])
+        .map_err(|error| format!("读取系统字体名称失败：{error}"))?;
+    let font = font.trim().to_string();
+    if font.is_empty() {
+        return Err("系统字体选择器没有返回字体名称".to_string());
+    }
+    Ok(Some(font))
+}
+
+#[tauri::command]
+async fn pick_font_family(
+    window: tauri::WebviewWindow,
+    current_font: Option<String>,
+) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    {
+        let owner = window
+            .hwnd()
+            .map_err(|error| format!("获取主窗口句柄失败：{error}"))?
+            .0 as isize;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        window
+            .run_on_main_thread(move || {
+                let owner = windows::Win32::Foundation::HWND(owner as *mut std::ffi::c_void);
+                let result = choose_windows_font_family(owner, current_font.as_deref());
+                let _ = sender.send(result);
+            })
+            .map_err(|error| format!("调度系统字体选择器失败：{error}"))?;
+        receiver
+            .await
+            .map_err(|_| "系统字体选择器未返回结果".to_string())?
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (window, current_font);
+        Err("系统字体选择器目前仅支持 Windows".to_string())
+    }
+}
+
 #[tauri::command]
 fn get_platform_info() -> serde_json::Value {
     serde_json::json!({
@@ -916,6 +996,7 @@ pub fn run() {
             get_platform_info,
             set_close_to_tray,
             set_window_theme,
+            pick_font_family,
             set_startup_flags,
             send_desktop_notification,
             download_update,

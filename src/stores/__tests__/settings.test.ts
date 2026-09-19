@@ -33,6 +33,7 @@ describe('settings store', () => {
   const defaults: Partial<AppSettings> = {
     theme: 'system',
     density: 'standard',
+    fontFamily: '',
     fontSize: 15,
     zoom: 100,
     accentColor: 'green',
@@ -48,6 +49,7 @@ describe('settings store', () => {
   it('loads default settings when localStorage is empty', () => {
     const store = useSettingsStore();
     expect(store.settings.theme).toBe(defaults.theme);
+    expect(store.settings.fontFamily).toBe(defaults.fontFamily);
     expect(store.settings.fontSize).toBe(defaults.fontSize);
     expect(store.settings.accentColor).toBe(defaults.accentColor);
     expect(store.settings.imageQuality).toBe(defaults.imageQuality);
@@ -57,6 +59,7 @@ describe('settings store', () => {
     expect(store.settings.noImageMode).toBe(defaults.noImageMode);
     expect(store.settings.navVisibility?.albums).toBe(true);
     expect(store.settings.navVisibility?.pictures).toBe(true);
+    expect(store.settings.navVisibility?.downloads).toBe(true);
     expect(store.settings.rememberWindowState).toBe(true);
     expect(store.settings.myRecentPinned).toBe(false);
   });
@@ -64,12 +67,13 @@ describe('settings store', () => {
   it('normalizes malformed values and preserves valid nested settings', () => {
     const normalized = normalizeSettings({
       theme: 'invalid',
+      fontFamily: 'Noto Sans SC',
       fontSize: 999,
       zoom: 1,
       updateChannel: 'beta',
       experimentalFeatures: false,
       blockedKeywords: ['广告', '', '广告', 123],
-      navVisibility: { albums: false, pictures: 'false' },
+      navVisibility: { albums: false, pictures: 'false', downloads: false },
       deviceFingerprint: { customFingerprint: true, darkMode: '1' },
       autoPlayLivePhotoSound: true,
       suppressUnsupportedLivePhotoCodecPrompt: true,
@@ -78,12 +82,14 @@ describe('settings store', () => {
       myRecentPinned: true,
     });
     expect(normalized.theme).toBe('system');
+    expect(normalized.fontFamily).toBe('Noto Sans SC');
     expect(normalized.fontSize).toBe(20);
     expect(normalized.zoom).toBe(50);
     expect(normalized.updateChannel).toBe('stable');
     expect(normalized.blockedKeywords).toEqual(['广告']);
     expect(normalized.navVisibility?.albums).toBe(false);
     expect(normalized.navVisibility?.pictures).toBe(true);
+    expect(normalized.navVisibility?.downloads).toBe(false);
     expect(normalized.deviceFingerprint.customFingerprint).toBe(true);
     expect(normalized.deviceFingerprint.darkMode).toBe('1');
     expect(normalized.autoPlayLivePhotoSound).toBe(true);
@@ -189,6 +195,16 @@ describe('settings store', () => {
     store.settings.noImageMode = false;
     await nextTick();
     expect(document.documentElement.hasAttribute('data-no-image-mode')).toBe(false);
+  });
+
+  it('切换字体时同步页面根节点', async () => {
+    const store = useSettingsStore();
+    store.settings.fontFamily = 'Noto Sans SC';
+    await nextTick();
+    expect(document.documentElement.style.getPropertyValue('--font-family-base')).toContain('Noto Sans SC');
+    store.settings.fontFamily = '';
+    await nextTick();
+    expect(document.documentElement.style.getPropertyValue('--font-family-base')).toBe('');
   });
 
   it('修改视觉设置时不重复调用原生系统设置', async () => {

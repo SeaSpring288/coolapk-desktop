@@ -265,7 +265,7 @@ onMounted(() => {
 
 <style scoped>
 .product-category-page {
-  --category-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --category-font-family: var(--font-family-base);
   width: 100%;
   max-width: none;
   height: 100%;

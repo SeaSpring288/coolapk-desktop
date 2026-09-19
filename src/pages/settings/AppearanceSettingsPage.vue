@@ -78,6 +78,36 @@
     </div>
 
     <div class="setting-group">
+      <h4 class="group-title">界面字体</h4>
+      <div class="setting-row">
+        <div class="row-info">
+          <span class="row-label">字体族</span>
+          <span class="row-sub">打开 Windows 系统字体选择器，从本机已安装字体中选择</span>
+        </div>
+        <div class="font-picker-controls">
+          <button
+            type="button"
+            class="font-picker-button"
+            :disabled="fontPickerOpening"
+            aria-label="打开系统字体选择器"
+            @click="openFontPicker"
+          >
+            <span class="font-picker-value">{{ selectedFontLabel }}</span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          </button>
+          <button
+            v-if="settingsStore.settings.fontFamily"
+            type="button"
+            class="font-reset-button"
+            @click="resetFontFamily"
+          >
+            恢复默认
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-group">
       <h4 class="group-title">列表密度</h4>
       <p class="group-sub">信息流卡片的留白与间距紧凑程度</p>
       <div class="density-options">
@@ -160,14 +190,19 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../../stores/settings';
 import type { AccentColor, FeedDensity } from '../../types/settings';
 import AppSwitch from '../../components/common/AppSwitch.vue';
 import { moreNavs } from '../../config/navigation';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { showToast } from '../../utils/toast';
 
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const fontPickerOpening = ref(false);
+const selectedFontLabel = computed(() => settingsStore.settings.fontFamily || '系统默认');
 
 const accentColors: { key: AccentColor; label: string; color: string }[] = [
   { key: 'green', label: '酷安绿', color: '#10b768' },
@@ -187,6 +222,26 @@ function adjustFontSize(delta: number) {
   settingsStore.settings.fontSize = next;
 }
 
+async function openFontPicker() {
+  if (fontPickerOpening.value) return;
+  fontPickerOpening.value = true;
+  try {
+    const selected = await invoke<string | null>('pick_font_family', {
+      currentFont: settingsStore.settings.fontFamily || null,
+    });
+    const fontFamily = selected?.trim();
+    if (fontFamily) settingsStore.settings.fontFamily = fontFamily;
+  } catch (error) {
+    showToast(`打开系统字体选择器失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+  } finally {
+    fontPickerOpening.value = false;
+  }
+}
+
+function resetFontFamily() {
+  settingsStore.settings.fontFamily = '';
+}
+
 const navItems = [
   { key: 'home', label: '首页', icon: 'fas fa-home' },
   { key: 'discover', label: '发现', icon: 'fas fa-compass' },
@@ -200,6 +255,7 @@ const navItems = [
   { key: 'history', label: '历史', icon: 'far fa-clock' },
   { key: 'messages', label: '消息', icon: 'far fa-comment-alt' },
   { key: 'following', label: '我关注的', icon: 'fas fa-user-group' },
+  { key: 'downloads', label: '下载', icon: 'fas fa-download' },
 ];
 
 const moreNavItems = moreNavs.map(({ key, label, icon }) => ({ key, label, icon }));
@@ -444,5 +500,62 @@ function toggleNav(key: string) {
   font-size: var(--font-size-sub);
   min-width: 44px;
   text-align: center;
+}
+
+.font-picker-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.font-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 220px;
+  max-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background-color: var(--background);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.font-picker-button:hover:not(:disabled),
+.font-picker-button:focus-visible {
+  border-color: var(--brand-primary);
+  outline: none;
+}
+
+.font-picker-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.font-picker-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-reset-button {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--brand-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.font-reset-button:hover {
+  text-decoration: underline;
 }
 </style>

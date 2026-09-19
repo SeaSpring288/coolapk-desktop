@@ -310,7 +310,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(10px);
   font-size: 13px;
   font-weight: 500;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-family-base);
   line-height: 1.2;
   pointer-events: none;
   user-select: none;

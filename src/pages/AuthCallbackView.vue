@@ -27,7 +27,7 @@ onMounted(() => {
   height: 100vh;
   background-color: var(--background, #f9fafb);
   color: var(--text-primary, #111827);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-family-base);
 }
 
 .callback-card {

@@ -83,6 +83,7 @@
 
       <div class="nav-group">
         <router-link
+          v-if="downloadsVisible"
           to="/downloads"
           class="nav-item"
           active-class="is-active"
@@ -255,6 +256,7 @@ const isMyActive = computed(() => {
 
 const moreVisible = computed(() => settingsStore.settings.navVisibility?.more !== false);
 const myVisible = computed(() => settingsStore.settings.navVisibility?.my !== false);
+const downloadsVisible = computed(() => settingsStore.settings.navVisibility?.downloads !== false);
 function getNavBadge(key: string): number {
   if (key === 'notifications') return notificationStore.notificationCount;
   if (key === 'messages') return notificationStore.messageCount;

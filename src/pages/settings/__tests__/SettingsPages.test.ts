@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { invoke } from '@tauri-apps/api/core';
 import { APP_VERSION } from '../../../constants/version';
 
 const mocks = vi.hoisted(() => ({
@@ -60,18 +61,26 @@ describe('设置页面交互', () => {
     document.body.innerHTML = '';
   });
 
-  it('外观页覆盖主题、强调色、字号、密度和栏目显隐', async () => {
+  it('外观页覆盖主题、强调色、字体、字号、密度和栏目显隐', async () => {
     const { wrapper, settings } = mountPage(AppearanceSettingsPage);
     await wrapper.findAll('.theme-card')[1].trigger('click');
     await wrapper.findAll('.accent-swatch')[1].trigger('click');
+    vi.mocked(invoke).mockResolvedValueOnce('Noto Sans SC');
+    await wrapper.get('.font-picker-button').trigger('click');
+    await flushPromises();
     await wrapper.findAll('.density-card')[2].trigger('click');
     await wrapper.findAll('.zoom-btn')[3].trigger('click');
     await wrapper.find('.nav-toggle-card input').setValue(false);
+    const downloadNav = wrapper.findAll('.nav-toggle-card').find((card) => card.text().includes('下载'));
+    expect(downloadNav).toBeDefined();
+    await downloadNav!.find('.switch-input').setValue(false);
     expect(settings.settings.theme).toBe('dark');
     expect(settings.settings.accentColor).toBe('blue');
+    expect(settings.settings.fontFamily).toBe('Noto Sans SC');
     expect(settings.settings.density).toBe('compact');
     expect(settings.settings.fontSize).toBe(16);
     expect(settings.settings.navVisibility?.home).toBe(false);
+    expect(settings.settings.navVisibility?.downloads).toBe(false);
   });
 
   it('内容页覆盖正文、链接和关键词设置', async () => {
