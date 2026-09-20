@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles/index.css';
 import App from './App.vue';
@@ -83,7 +84,6 @@ window.addEventListener('unhandledrejection', (e) => {
 
 async function focusMainWindow() {
   try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
     const mainWindow = getCurrentWindow();
     await mainWindow.show();
     await mainWindow.unminimize();

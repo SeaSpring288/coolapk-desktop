@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type {
   AppSettings,
   ThemeMode,
@@ -452,11 +453,9 @@ export const useSettingsStore = defineStore('settings', () => {
   function syncWindowTheme(theme: 'light' | 'dark' | null) {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     if ((window as any).__TAURI_INTERNALS__?.metadata) {
-      import('@tauri-apps/api/window')
-        .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(theme))
-        .catch((err) => {
-          console.warn('通过 Tauri Window API 设置窗口主题失败:', err);
-        });
+      void getCurrentWindow().setTheme(theme).catch((err) => {
+        console.warn('通过 Tauri Window API 设置窗口主题失败:', err);
+      });
     }
     invoke('set_window_theme', { theme }).catch((err) => {
       console.warn('通过 set_window_theme 设置窗口主题失败:', err);
@@ -589,11 +588,9 @@ export const useSettingsStore = defineStore('settings', () => {
   function syncAlwaysOnTop(enabled: boolean) {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
     if ((window as any).__TAURI_INTERNALS__?.metadata) {
-      import('@tauri-apps/api/window')
-        .then(({ getCurrentWindow }) => getCurrentWindow().setAlwaysOnTop(enabled))
-        .catch((err) => {
-          console.warn('设置窗口置顶失败:', err);
-        });
+      void getCurrentWindow().setAlwaysOnTop(enabled).catch((err) => {
+        console.warn('设置窗口置顶失败:', err);
+      });
     }
   }
 

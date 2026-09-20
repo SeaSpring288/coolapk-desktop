@@ -16,5 +16,7 @@ export default defineConfig({
     target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
     minify: !process.env.TAURI_DEBUG ? 'oxc' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    // 当前桌面端将页面与 Font Awesome 资源合并为单一主包，允许其在 Tauri 单文件场景下保持完整。
+    chunkSizeWarningLimit: 2500,
   },
 });

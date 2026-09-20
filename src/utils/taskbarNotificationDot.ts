@@ -1,4 +1,7 @@
 import { getPlatformInfo } from './platform';
+import { Image as TauriImage } from '@tauri-apps/api/image';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import logoUrl from '../assets/coolapk-logo-rounded.png';
 
 const ICON_SIZE = 64;
 const TRAY_ICON_ID = 'main-tray';
@@ -8,14 +11,12 @@ let iconUpdateQueue: Promise<void> = Promise.resolve();
 
 function loadLogoImage(): Promise<HTMLImageElement> {
   if (logoImagePromise) return logoImagePromise;
-  logoImagePromise = import('../assets/coolapk-logo-rounded.png').then(
-    ({ default: logoUrl }) => new Promise((resolve, reject) => {
-      const image = new window.Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('通知图标资源加载失败'));
-      image.src = logoUrl;
-    })
-  );
+  logoImagePromise = new Promise((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('通知图标资源加载失败'));
+    image.src = logoUrl;
+  });
   return logoImagePromise;
 }
 
@@ -115,11 +116,7 @@ async function applyWindowsNotificationIcons(unreadCount: number): Promise<void>
   if (!(window as any).__TAURI_INTERNALS__) return;
 
   try {
-    const [{ Image: TauriImage }, { TrayIcon }, { getCurrentWindow }] = await Promise.all([
-      import('@tauri-apps/api/image'),
-      import('@tauri-apps/api/tray'),
-      import('@tauri-apps/api/window'),
-    ]);
+    const { TrayIcon } = await import('@tauri-apps/api/tray');
     const normalizedCount = normalizeUnreadCount(unreadCount);
     const [taskbarRgba, trayRgba] = await Promise.all([
       renderNotificationIcon('taskbar-number', normalizedCount),

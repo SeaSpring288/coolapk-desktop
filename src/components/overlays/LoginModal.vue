@@ -220,6 +220,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { useAuthStore } from '../../stores/auth';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import AppButton from '../common/AppButton.vue';
@@ -305,15 +306,13 @@ async function handleCheckWebLogin(showFailure = true): Promise<boolean> {
 
 // 监听 Rust 端发送的网页窗口自动重定向闭环事件
 let unlistenFn: any = null;
-import('@tauri-apps/api/event').then(({ listen }) => {
-  listen('login-window-closed', () => {
-    console.log('[login-debug] received login-window-closed event');
-    debugStatus.value = '收到 login-window-closed 事件，触发同步校验';
-    void handleCheckWebLogin(false);
-  }).then(unlisten => {
-    unlistenFn = unlisten;
-  }).catch(error => console.warn('[login-debug] listen login-window-closed failed', error));
-});
+listen('login-window-closed', () => {
+  console.log('[login-debug] received login-window-closed event');
+  debugStatus.value = '收到 login-window-closed 事件，触发同步校验';
+  void handleCheckWebLogin(false);
+}).then(unlisten => {
+  unlistenFn = unlisten;
+}).catch(error => console.warn('[login-debug] listen login-window-closed failed', error));
 
 // 手机号登录表单
 // 账号密码登录表单

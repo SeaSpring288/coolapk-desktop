@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+
 export type DesktopNotifyOptions = {
   title: string;
   body?: string;
@@ -40,7 +42,6 @@ function playNotificationSound() {
 export async function desktopNotify(options: DesktopNotifyOptions, sound = false) {
   try {
     if (typeof window === 'undefined' || !(window as any).__TAURI_INTERNALS__) return;
-    const { invoke } = await import('@tauri-apps/api/core');
     const notificationPromise = invoke('send_desktop_notification', {
       title: options.title,
       body: options.body || null,
