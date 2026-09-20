@@ -265,6 +265,7 @@
           <div v-if="loadingMore" class="loading-more">
             <LoadingState text="加载更多动态..." />
           </div>
+          <div v-else-if="noMore && feeds.length > 0" class="feed-no-more">没有更多内容了</div>
         </div>
       </div>
     </div>
@@ -318,6 +319,7 @@ const page = ref(1);
 const feeds = ref<any[]>([]);
 const pageEntities = ref<DiscoveryEntity[]>([]);
 const pageEntityCursor = reactive({ firstItem: '', lastItem: '', pageContext: '' });
+const feedCursor = reactive({ firstItem: '', lastItem: '', pageContext: '' });
 const feedScrollContainer = ref<HTMLElement | null>(null);
 const subChannelsContainer = ref<HTMLElement | null>(null);
 const loading = ref(false);
@@ -422,6 +424,16 @@ const isSecondHandPageTab = computed(() => {
 });
 
 const isPageEntityTab = computed(() => isTopicPageTab.value || isNewDevicePageTab.value || isLiveTab.value || isSecondHandPageTab.value);
+
+// APK 的 DataListFragment 对 ConfigPage 使用 /page/dataList 分页，并携带 lastItem/pageContext。
+// 视频栏目就是这类页面，但它仍然渲染成动态流，不能复用普通 getBoardFeeds 的页码分页。
+const isCursorFeedTab = computed(() => {
+  const tab = currentActiveTabObj.value;
+  if (isHeadlineTab.value || isHotTab.value || isPageEntityTab.value) return false;
+  const pageName = String(tab?.page_name || activeTab.value).trim();
+  const url = String(tab?.url || (tab ? '' : activeTab.value)).trim();
+  return /^\/page\?url=/i.test(url) || /^V\d+_/i.test(pageName);
+});
 
 const isQuestionTab = computed(() => {
   return isQuestionHomeTab(currentActiveTabObj.value) || isQuestionHomeTab({ page_name: activeTab.value });
@@ -868,6 +880,19 @@ async function fetchTabApi(tabKey: string, p: number) {
     });
   }
 
+  if (isCursorFeedTab.value) {
+    return await CoolapkTauriAPI.getDiscoveryPageData({
+      url: targetUrl,
+      title: matchedTab?.title || '',
+      subTitle: matchedTab?.subTitle || '',
+      page: p,
+      // 官方 DataListFragment 的加载更多分支只传 lastItem/pageContext，firstItem 保持为空。
+      firstItem: '',
+      lastItem: p <= 1 ? '' : feedCursor.lastItem,
+      pageContext: p <= 1 ? '' : feedCursor.pageContext,
+    });
+  }
+
   // 1. 如果匹配到具体 URL，调用通用板块/页面数据流
   if (targetUrl) {
     return await CoolapkTauriAPI.getBoardFeeds(targetUrl, p);
@@ -878,7 +903,7 @@ async function fetchTabApi(tabKey: string, p: number) {
 }
 
 async function prefetchNextPage() {
-  if (isHeadlineTab.value || isPageEntityTab.value || isPrefetching.value || noMore.value) return;
+  if (isHeadlineTab.value || isPageEntityTab.value || isCursorFeedTab.value || isPrefetching.value || noMore.value) return;
   isPrefetching.value = true;
   try {
     const nextP = page.value;
@@ -908,6 +933,9 @@ async function loadFeeds(isRefresh: boolean = false) {
     pageEntityCursor.firstItem = '';
     pageEntityCursor.lastItem = '';
     pageEntityCursor.pageContext = '';
+    feedCursor.firstItem = '';
+    feedCursor.lastItem = '';
+    feedCursor.pageContext = '';
     prefetchBuffer.value = [];
     if (isHeadlineTab.value) resetHeadlineCursor({ preserveNested: Boolean(selectedHeadlineNestedSubChannelUrl.value) });
     loading.value = true;
@@ -945,6 +973,12 @@ async function loadFeeds(isRefresh: boolean = false) {
       page.value = prefetchPage.value;
     } else {
       const res: any = await fetchTabApi(activeTab.value, page.value);
+      if (isCursorFeedTab.value) {
+        const parsed = parseDiscoveryPage(res, page.value);
+        feedCursor.firstItem = parsed.firstItem;
+        feedCursor.lastItem = parsed.lastItem;
+        feedCursor.pageContext = parsed.pageContext || '';
+      }
       if (res && res.data && Array.isArray(res.data)) {
         rawItems = res.data;
         if (isHeadlineTab.value) updateHeadlineQuickLinks(rawItems);
@@ -1010,7 +1044,7 @@ async function loadFeeds(isRefresh: boolean = false) {
       feeds.value.push(...uniqueNew);
     }
 
-    if (!isHeadlineTab.value) {
+    if (!isHeadlineTab.value && !isCursorFeedTab.value) {
       setTimeout(() => {
         prefetchNextPage();
       }, 200);
@@ -1488,6 +1522,13 @@ onUnmounted(unbindGlobalListeners);
 
 .page-entity-no-more {
   padding: 12px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.feed-no-more {
+  padding: var(--space-4) 0;
   color: var(--text-tertiary);
   font-size: 12px;
   text-align: center;

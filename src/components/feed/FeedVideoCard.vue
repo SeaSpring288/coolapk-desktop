@@ -29,7 +29,7 @@
         <span class="video-play-button"><i class="fas fa-play"></i></span>
           <span v-if="formattedDuration" class="video-duration">{{ formattedDuration }}</span>
         </button>
-        <div v-if="videoError" class="video-error-message">视频加载失败，请重试</div>
+        <button v-if="videoError" type="button" class="video-error-message" @click.stop="retryVideo">视频加载失败，请重试</button>
     </div>
   </div>
 </template>
@@ -39,7 +39,7 @@ import { computed, ref, watch } from 'vue';
 import { CoolapkTauriAPI } from '../../api/coolapk';
 import { useSettingsStore } from '../../stores/settings';
 import AppImage from '../common/AppImage.vue';
-import { formatFeedVideoDuration, getFeedVideo } from '../../utils/feedMedia';
+import { extractFeedVideoUrl, formatFeedVideoDuration, getFeedVideo } from '../../utils/feedMedia';
 
 const props = defineProps<{ feed: unknown }>();
 const settingsStore = useSettingsStore();
@@ -51,10 +51,31 @@ const videoError = ref(false);
 const resolvedUrl = ref('');
 const resolutionFailed = ref(false);
 const resolving = ref(false);
+let resolutionVersion = 0;
+
+function getPlayableSource(url: string): string {
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol === 'https:' && (host === 'weibocdn.com' || host.endsWith('.weibocdn.com'))) {
+      const encodedUrl = encodeURIComponent(url);
+      // Windows WebView2 exposes Tauri custom schemes through the mapped
+      // http://<scheme>.localhost origin.
+      return navigator.userAgent.includes('Windows')
+        ? `http://coolapk-video.localhost/?url=${encodedUrl}`
+        : `coolapk-video://localhost/?url=${encodedUrl}`;
+    }
+  } catch {
+    // 保留原始地址，让 video 元素按原有错误链路处理。
+  }
+  return url;
+}
+
 const playableUrl = computed(() => {
   if (!video.value) return '';
-  if (video.value.requestParams && !resolutionFailed.value) return resolvedUrl.value;
-  return video.value.url;
+  const url = video.value.requestParams && !resolutionFailed.value ? resolvedUrl.value : video.value.url;
+  return getPlayableSource(url);
 });
 
 async function resolveVideo() {
@@ -62,20 +83,22 @@ async function resolveVideo() {
   const requestParams = video.value?.requestParams;
   if (!requestParams) return;
 
+  const currentVersion = ++resolutionVersion;
   resolving.value = true;
   resolutionFailed.value = false;
   resolvedUrl.value = '';
   videoError.value = false;
   try {
     const response: any = await CoolapkTauriAPI.resolveVideoUrl(requestParams);
-    const url = response?.data?.urlList?.find((item: unknown) => typeof item === 'string' && item.trim());
+    const url = extractFeedVideoUrl(response);
     if (!url) throw new Error('酷安未返回可播放地址');
+    if (currentVersion !== resolutionVersion) return;
     resolvedUrl.value = url;
   } catch (error) {
     console.warn('酷安视频地址解析失败：', error);
-    resolutionFailed.value = true;
+    if (currentVersion === resolutionVersion) resolutionFailed.value = true;
   } finally {
-    resolving.value = false;
+    if (currentVersion === resolutionVersion) resolving.value = false;
   }
 }
 
@@ -102,6 +125,20 @@ async function playVideo() {
 
 function handleVideoError() {
   if (!resolving.value) videoError.value = true;
+}
+
+function retryVideo() {
+  videoError.value = false;
+  if (video.value?.requestParams) {
+    void resolveVideo();
+    return;
+  }
+  const element = videoRef.value;
+  if (!element) return;
+  element.load();
+  void element.play().catch(() => {
+    videoError.value = true;
+  });
 }
 </script>
 
@@ -211,6 +248,8 @@ function handleVideoError() {
   background: rgba(127, 29, 29, 0.82);
   font-size: 12px;
   line-height: 1.4;
-  pointer-events: none;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
 }
 </style>

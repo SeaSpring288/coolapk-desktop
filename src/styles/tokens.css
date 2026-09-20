@@ -44,7 +44,13 @@
   --sidebar-collapsed-width: 56px;
   --feed-max-width: 720px;
   --right-sidebar-width: 270px;
-  --topbar-height: 72px;
+  --app-titlebar-height: 56px;
+  --topbar-height: var(--app-titlebar-height);
+  --window-control-width: 46px;
+  --titlebar-background: var(--surface);
+  --titlebar-divider: rgba(0, 0, 0, 0.05);
+  --window-control-hover: rgba(0, 0, 0, 0.06);
+  --window-control-active: rgba(0, 0, 0, 0.1);
   --drawer-width: 520px;
   --header-height: 56px;
 

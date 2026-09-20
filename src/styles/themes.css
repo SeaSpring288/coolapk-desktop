@@ -35,6 +35,9 @@
 }
 
 [data-theme="dark"] {
+  --titlebar-divider: rgba(255, 255, 255, 0.07);
+  --window-control-hover: rgba(255, 255, 255, 0.08);
+  --window-control-active: rgba(255, 255, 255, 0.13);
   --brand-primary: #22c875;
   --brand-hover: #32d984;
   --brand-active: #16af65;

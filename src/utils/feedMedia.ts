@@ -42,6 +42,38 @@ function normalizeVideoUrl(value: unknown): string {
   return '';
 }
 
+/** 兼容播放器接口不同版本返回的单地址、地址列表和嵌套 data 结构。 */
+export function extractFeedVideoUrl(response: unknown): string {
+  const pending: unknown[] = [response];
+  const visited = new Set<object>();
+  const urlKeys = ['url', 'videoUrl', 'video_url', 'videoSrc', 'video_src', 'finalUrl', 'final_url'];
+  const nestedKeys = ['data', 'result', 'payload', 'urlList', 'url_list', 'urls'];
+
+  while (pending.length > 0) {
+    const value = pending.shift();
+    const directUrl = normalizeVideoUrl(value);
+    if (directUrl) return directUrl;
+    if (!value || typeof value !== 'object') continue;
+    if (visited.has(value)) continue;
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      pending.push(...value);
+      continue;
+    }
+
+    const record = value as FeedRecord;
+    for (const key of urlKeys) {
+      if (record[key] !== undefined) pending.push(record[key]);
+    }
+    for (const key of nestedKeys) {
+      if (record[key] !== undefined) pending.push(record[key]);
+    }
+  }
+
+  return '';
+}
+
 function selectVideoRequestParams(value: unknown): string {
   const requestParams = parseMediaInfo(value);
   if (!requestParams) return '';

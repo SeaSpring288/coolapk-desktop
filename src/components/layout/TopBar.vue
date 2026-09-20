@@ -1,11 +1,27 @@
 <template>
-  <header class="top-bar">
-    <div class="top-bar-left" :class="{ 'is-collapsed': settingsStore.settings.sidebarCollapsed }">
-      <img src="../../assets/coolapk-logo-rounded.png" alt="Coolapk Logo" class="brand-logo" />
-      <span v-if="!settingsStore.settings.sidebarCollapsed" class="brand-name">酷安</span>
+  <header
+    class="top-bar"
+    :class="{ 'is-macos': usesMacOverlay, 'has-window-controls': showWindowControls }"
+    data-tauri-drag-region="deep"
+  >
+    <div
+      class="titlebar-sidebar-offset"
+      :class="{ 'is-collapsed': settingsStore.settings.sidebarCollapsed }"
+      data-tauri-drag-region
+    >
+      <div class="titlebar-brand" data-tauri-drag-region>
+        <img
+          class="titlebar-brand-logo"
+          src="../../assets/coolapk-logo-rounded.png"
+          alt=""
+          draggable="false"
+          data-tauri-drag-region
+        />
+        <span class="titlebar-brand-name" data-tauri-drag-region>酷安</span>
+      </div>
     </div>
 
-    <div class="top-bar-center">
+    <div class="top-bar-center" data-tauri-drag-region="false">
       <div class="global-navigation" aria-label="页面导航">
         <AppIconButton
           icon="fas fa-arrow-left"
@@ -30,7 +46,9 @@
           size="sm"
           @click="refreshPage"
         />
-        <BackToTop variant="nav" />
+        <span class="back-to-top-control">
+          <BackToTop variant="nav" />
+        </span>
       </div>
       <div class="search-input-wrapper" @click="appStore.openSearch">
         <i class="fas fa-search search-icon"></i>
@@ -47,10 +65,14 @@
       />
     </div>
 
-    <div class="top-bar-right">
-      <AppButton variant="primary" size="sm" icon="fas fa-pen" @click="appStore.openPublish">
-        发布动态
-      </AppButton>
+    <div class="top-bar-right" data-tauri-drag-region="false">
+      <AppIconButton
+        class="publish-action"
+        icon="fas fa-pen"
+        title="发布动态"
+        aria-label="发布动态"
+        @click="appStore.openPublish"
+      />
 
       <div
         class="notification-wrapper"
@@ -286,6 +308,16 @@
         </Transition>
       </div>
     </div>
+
+    <div class="titlebar-drag-spacer" data-tauri-drag-region></div>
+
+    <WindowControls
+      v-if="showWindowControls"
+      :is-maximized="isMaximized"
+      @minimize="minimize"
+      @toggle-maximize="toggleMaximize"
+      @close="close"
+    />
   </header>
 </template>
 
@@ -326,7 +358,9 @@ import AppButton from '../common/AppButton.vue';
 import AppIconButton from '../common/AppIconButton.vue';
 import AppAvatar from '../common/AppAvatar.vue';
 import BackToTop from '../common/BackToTop.vue';
+import WindowControls from './WindowControls.vue';
 import { usePlatformShortcuts } from '../../utils/shortcuts';
+import { useDesktopWindow } from '../../composables/useDesktopWindow';
 
 const router = useRouter();
 const route = useRoute();
@@ -335,6 +369,14 @@ const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
 const settingsStore = useSettingsStore();
 const { formatShortcut } = usePlatformShortcuts();
+const {
+  isMaximized,
+  usesMacOverlay,
+  showWindowControls,
+  minimize,
+  toggleMaximize,
+  close,
+} = useDesktopWindow();
 
 const isDark = computed(() => settingsStore.settings.theme === 'dark');
 
@@ -993,52 +1035,84 @@ function handleUserClick() {
 <style scoped>
 .top-bar {
   height: var(--topbar-height);
-  background-color: var(--surface);
-  border-bottom: 1px solid var(--border);
+  min-height: var(--topbar-height);
+  background-color: var(--titlebar-background);
+  border-bottom: 1px solid var(--titlebar-divider);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-4);
+  overflow: hidden;
+  user-select: none;
   z-index: 800;
 }
 
-.top-bar-left {
+.titlebar-sidebar-offset {
+  align-self: stretch;
+  flex: 0 0 var(--sidebar-width);
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  width: var(--sidebar-width);
-  flex-shrink: 0;
-  transition: width var(--duration-normal) var(--ease-default);
+  transition: flex-basis var(--duration-normal) var(--ease-default);
 }
 
-
-
-.top-bar-left.is-collapsed {
-  width: var(--sidebar-collapsed-width);
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 20px;
+  color: var(--text-primary);
 }
 
-.brand-logo {
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
+.titlebar-brand-logo {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-.brand-name {
-  font-size: var(--font-size-title-md);
+.titlebar-brand-name {
+  overflow: hidden;
+  font-size: 16px;
   font-weight: var(--font-weight-bold);
-  color: var(--brand-primary);
-  letter-spacing: -0.5px;
+  letter-spacing: -0.3px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.titlebar-sidebar-offset.is-collapsed {
+  flex-basis: var(--sidebar-collapsed-width);
+}
+
+.titlebar-sidebar-offset.is-collapsed .titlebar-brand {
+  padding-left: 13px;
+}
+
+.titlebar-sidebar-offset.is-collapsed .titlebar-brand-name {
+  display: none;
+}
+
+.top-bar.is-macos .titlebar-sidebar-offset.is-collapsed {
+  flex-basis: 86px;
+}
+
 .top-bar-center {
-  flex: 1;
-  max-width: 560px;
-  margin: 0 var(--space-3);
-  min-width: 120px;
+  flex: 0 1 640px;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  overflow: hidden;
+}
+
+.top-bar.is-macos .top-bar-center {
+  flex-basis: 620px;
+}
+
+.titlebar-drag-spacer {
+  align-self: stretch;
+  flex: 1 1 40px;
+  min-width: var(--space-2);
 }
 
 .global-navigation {
@@ -1051,10 +1125,11 @@ function handleUserClick() {
 }
 
 .search-input-wrapper {
-  flex: 1;
+  flex: 1 1 260px;
+  min-width: 88px;
   display: flex;
   align-items: center;
-  height: 40px;
+  height: 38px;
   background-color: var(--background);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-pill);
@@ -1073,18 +1148,6 @@ function handleUserClick() {
 .theme-toggle-icon-btn:hover {
   color: var(--brand-primary);
   transform: rotate(15deg);
-}
-
-.top-bar-right .app-button {
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
-  transition: transform var(--duration-fast) var(--ease-default),
-              box-shadow var(--duration-fast) var(--ease-default),
-              background-color var(--duration-fast) var(--ease-default);
-}
-
-.top-bar-right .app-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.38);
 }
 
 .search-input-wrapper:hover {
@@ -1112,6 +1175,7 @@ function handleUserClick() {
 
 .placeholder-text {
   flex: 1;
+  min-width: 0;
   font-size: var(--font-size-sub);
   color: var(--text-tertiary);
   white-space: nowrap;
@@ -1135,8 +1199,10 @@ function handleUserClick() {
 .top-bar-right {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   flex-shrink: 0;
+  margin-left: var(--space-2);
+  margin-right: var(--space-4);
 }
 
 .notification-wrapper {
@@ -1328,17 +1394,65 @@ function handleUserClick() {
 }
 
 @media (max-width: 1100px) {
-  .top-bar-left {
-    width: var(--sidebar-collapsed-width);
+  .titlebar-sidebar-offset {
+    flex-basis: var(--sidebar-collapsed-width);
   }
-  .brand-name {
-    display: none !important;
+
+  .titlebar-sidebar-offset .titlebar-brand {
+    padding-left: 13px;
+  }
+
+  .titlebar-sidebar-offset .titlebar-brand-name {
+    display: none;
+  }
+
+  .top-bar.is-macos .titlebar-sidebar-offset {
+    flex-basis: 86px;
+  }
+
+  .top-bar-center {
+    flex-basis: 520px;
+  }
+
+  .placeholder-text {
+    display: none;
+  }
+
+  .search-icon {
+    margin-right: 0;
+  }
+
+  .search-input-wrapper {
+    flex-basis: 120px;
+    padding: 0 var(--space-3);
+  }
+
+  .top-bar-right :deep(.app-button .icon-left) {
+    margin-right: 0;
   }
 }
 
 @media (max-width: 800px) {
   .shortcut-kbd {
     display: none;
+  }
+
+  .back-to-top-control {
+    display: none;
+  }
+
+  .titlebar-drag-spacer {
+    min-width: var(--space-1);
+  }
+
+  .top-bar-right {
+    gap: var(--space-1);
+    margin-left: var(--space-1);
+    margin-right: var(--space-2);
+  }
+
+  .top-bar.has-window-controls {
+    --window-control-width: 42px;
   }
 }
 
@@ -1350,7 +1464,6 @@ function handleUserClick() {
 
 .user-profile-trigger {
   cursor: pointer;
-  margin-left: var(--space-2);
   transition: transform var(--duration-fast);
 }
 

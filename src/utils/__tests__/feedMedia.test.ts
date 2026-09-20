@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatFeedVideoDuration, getFeedVideo } from '../feedMedia';
+import { extractFeedVideoUrl, formatFeedVideoDuration, getFeedVideo } from '../feedMedia';
 
 describe('动态视频字段解析', () => {
+  it('兼容播放器接口的多种返回地址结构', () => {
+    expect(extractFeedVideoUrl({ data: { url: 'https://video.example.com/one.mp4' } })).toBe('https://video.example.com/one.mp4');
+    expect(extractFeedVideoUrl({ urlList: ['not-a-url', '//video.example.com/two.mp4'] })).toBe('https://video.example.com/two.mp4');
+    expect(extractFeedVideoUrl({ result: { data: { final_url: 'http://video.example.com/three.mp4' } } })).toBe('https://video.example.com/three.mp4');
+  });
+
   it('兼容视频 URL、封面和时长的驼峰/下划线字段', () => {
     expect(getFeedVideo({ video_url: 'http://cdn.example.com/video.mp4', videoPic: '/video-cover.jpg', video_duration: 95 })).toEqual({
       url: 'https://cdn.example.com/video.mp4',

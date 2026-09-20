@@ -139,6 +139,14 @@ pub struct CoolapkClient {
     device_code: RwLock<String>,
 }
 
+pub struct ProxiedVideoResponse {
+    pub status: u16,
+    pub content_type: String,
+    pub content_length: Option<u64>,
+    pub content_range: Option<String>,
+    pub body: Vec<u8>,
+}
+
 fn build_oss_image_url(prefix: &str, file_name: &str) -> Option<String> {
     let prefix = prefix.trim().trim_end_matches('/');
     let file_name = file_name.trim().trim_start_matches('/');
@@ -467,6 +475,16 @@ fn extract_readable_content(html: &str) -> String {
 fn is_coolapk_host(host: &str) -> bool {
     let host = host.to_ascii_lowercase();
     host == "coolapk.com" || host.ends_with(".coolapk.com")
+}
+
+fn is_weibo_video_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    host == "weibocdn.com" || host.ends_with(".weibocdn.com")
+}
+
+fn is_weibo_image_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    host == "sinaimg.cn" || host.ends_with(".sinaimg.cn")
 }
 
 fn parse_http_url(value: &Value) -> Option<String> {
@@ -3209,10 +3227,15 @@ impl CoolapkClient {
                     .header("X-App-Token", token),
             )?
         } else {
+            let referer = if is_weibo_image_host(&host) {
+                "https://weibo.com/"
+            } else {
+                "https://www.coolapk.com/"
+            };
             img_client
                 .get(url)
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .header("Referer", "https://www.coolapk.com/")
+                .header("Referer", referer)
         };
 
         if let Ok(guard) = self.user_cookie.read() {
@@ -3375,6 +3398,72 @@ impl CoolapkClient {
             )
             .await?;
         wrap_api_data(raw)
+    }
+
+    /// 为 WebView2 代理微博视频的 Range 请求。
+    ///
+    /// 微博 CDN 返回的跨域媒体会被 WebView2 的 ORB 拦截，原生播放器则可以正常读取。
+    /// 这里只允许微博 CDN，并且不携带酷安 Cookie 或 App 指纹头。
+    pub async fn proxy_weibo_video(
+        &self,
+        video_url: &str,
+        range: Option<&str>,
+    ) -> Result<ProxiedVideoResponse, String> {
+        let parsed = reqwest::Url::parse(video_url.trim())
+            .map_err(|error| format!("微博视频地址无效：{error}"))?;
+        let host = parsed.host_str().unwrap_or_default();
+        if parsed.scheme() != "https" || !is_weibo_video_host(host) {
+            return Err("仅允许代理微博 HTTPS 视频地址".to_string());
+        }
+
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(90))
+            .build()
+            .map_err(|error| format!("创建视频代理客户端失败：{error}"))?;
+        let mut request = client
+            .get(parsed)
+            .header(USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .header("Accept", "video/mp4,video/*;q=0.9,*/*;q=0.8")
+            .header("Referer", "https://weibo.com/");
+        if let Some(range) = range.filter(|value| !value.trim().is_empty()) {
+            request = request.header("Range", range);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|error| format!("读取微博视频失败：{error}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("微博视频返回 HTTP {status}"));
+        }
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| value.starts_with("video/"))
+            .unwrap_or("video/mp4")
+            .to_string();
+        let content_length = response.content_length();
+        let content_range = response
+            .headers()
+            .get("content-range")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
+        let body = response
+            .bytes()
+            .await
+            .map_err(|error| format!("读取微博视频内容失败：{error}"))?
+            .to_vec();
+
+        Ok(ProxiedVideoResponse {
+            status: status.as_u16(),
+            content_type,
+            content_length,
+            content_range,
+            body,
+        })
     }
 
     /// 按 APK 的 Live Photo 链路获取实况视频最终地址。

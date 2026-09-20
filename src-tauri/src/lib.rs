@@ -764,6 +764,65 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .register_asynchronous_uri_scheme_protocol("coolapk-video", |ctx, request, responder| {
+            let target_url = reqwest::Url::parse(&request.uri().to_string())
+                .ok()
+                .and_then(|url| {
+                    url.query_pairs()
+                        .find(|(key, _)| key == "url")
+                        .map(|(_, value)| value.into_owned())
+                });
+            let range = request
+                .headers()
+                .get("range")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let app_handle = ctx.app_handle().clone();
+
+            tauri::async_runtime::spawn(async move {
+                let Some(target_url) = target_url else {
+                    responder.respond(
+                        tauri::http::Response::builder()
+                            .status(400)
+                            .header("Content-Type", "text/plain; charset=utf-8")
+                            .body(b"missing video url".to_vec())
+                            .unwrap(),
+                    );
+                    return;
+                };
+
+                let result = app_handle
+                    .state::<AppState>()
+                    .client
+                    .proxy_weibo_video(&target_url, range.as_deref())
+                    .await;
+                match result {
+                    Ok(video) => {
+                        let mut builder = tauri::http::Response::builder()
+                            .status(video.status)
+                            .header("Content-Type", video.content_type)
+                            .header("Accept-Ranges", "bytes")
+                            .header("Access-Control-Allow-Origin", "*");
+                        if let Some(content_length) = video.content_length {
+                            builder = builder.header("Content-Length", content_length.to_string());
+                        }
+                        if let Some(content_range) = video.content_range {
+                            builder = builder.header("Content-Range", content_range);
+                        }
+                        responder.respond(builder.body(video.body).unwrap());
+                    }
+                    Err(error) => {
+                        responder.respond(
+                            tauri::http::Response::builder()
+                                .status(502)
+                                .header("Content-Type", "text/plain; charset=utf-8")
+                                .body(error.into_bytes())
+                                .unwrap(),
+                        );
+                    }
+                }
+            });
+        })
         // 兜底防线：主窗口若被导航到本地源以外的页面（如某个 v-html 遗漏的裸链接），
         // 加载完成后立即返回上一页，避免外部页面驻留在主窗口。
         // 点击路径已由前端全局 <a> 拦截 + 页面级 handleAnchorClick 处理。
